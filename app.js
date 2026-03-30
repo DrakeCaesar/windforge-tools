@@ -689,60 +689,60 @@
   }
 
   /**
-   * Relative widths for paired <colgroup> (header + body tables) with `table-layout: fixed`.
-   * Renormalized over visible columns so virtual scroll doesn’t reflow columns per row batch.
+   * Integer pixel widths for paired <colgroup> (header + body) with `table-layout: fixed`.
+   * No fractional scaling — values are whole px so layout stays pixel-aligned.
    */
-  const STAT_COLUMN_WEIGHT = 6
-  
-  const COLUMN_LAYOUT_WEIGHT = {
-    /* Wider than the 48px asset so the “Icon” header isn’t squeezed; body cells stay centered in the extra space. */
-    icon: 6,
-    display: 24,
-    name: 24,
-    objectType: 16,
-    buy: 5.5,
-    sell: 5.5,
-    componentSell: 5.5,
-    profit: 5.5,
-    description: 32,
-    dmgPhysical: STAT_COLUMN_WEIGHT,
-    meleeTimeBetweenAttacks: STAT_COLUMN_WEIGHT,
-    meleeAttackRange: STAT_COLUMN_WEIGHT,
-    dmgKnockback: STAT_COLUMN_WEIGHT,
-    rtPhysicalDamage: STAT_COLUMN_WEIGHT,
-    rtElementalDamage: STAT_COLUMN_WEIGHT,
-    rtChemicalDamage: STAT_COLUMN_WEIGHT,
-    rtKnockbackMagnitude: STAT_COLUMN_WEIGHT,
-    clothAirDrain: STAT_COLUMN_WEIGHT,
-    clothTraitWeight: STAT_COLUMN_WEIGHT,
-    clothTraitHealth: STAT_COLUMN_WEIGHT,
-    clothTraitStrength: STAT_COLUMN_WEIGHT,
-    clothTraitAgility: STAT_COLUMN_WEIGHT,
-    clothTraitIntelligence: STAT_COLUMN_WEIGHT,
-    clothTraitArmour: STAT_COLUMN_WEIGHT,
-    clothTraitElemRes: STAT_COLUMN_WEIGHT,
-    clothTraitChemRes: STAT_COLUMN_WEIGHT,
-    clothTraitFallRes: STAT_COLUMN_WEIGHT,
-    clothTraitBuoyancy: STAT_COLUMN_WEIGHT,
-    clothTraitRegen: STAT_COLUMN_WEIGHT,
-    pbImpactDmgMult: STAT_COLUMN_WEIGHT,
-    ghLatchRange: STAT_COLUMN_WEIGHT,
-    ghThrowRange: STAT_COLUMN_WEIGHT,
-    plMass: STAT_COLUMN_WEIGHT,
-    plBuoyancy: STAT_COLUMN_WEIGHT,
-    plHitPoints: STAT_COLUMN_WEIGHT,
-    ppoMaxForce: STAT_COLUMN_WEIGHT,
-    ppoResponsiveness: STAT_COLUMN_WEIGHT,
-    peAvailableEnergy: STAT_COLUMN_WEIGHT,
-    pgDamagePerChop: STAT_COLUMN_WEIGHT,
-    pgMinChopDelay: STAT_COLUMN_WEIGHT,
-    pgMaxChopDelay: STAT_COLUMN_WEIGHT,
-    paMinShot: STAT_COLUMN_WEIGHT,
-    paMaxShot: STAT_COLUMN_WEIGHT,
-    paMaxProjSpeed: STAT_COLUMN_WEIGHT,
-    paPhysDmg: STAT_COLUMN_WEIGHT,
-    paKnockback: STAT_COLUMN_WEIGHT,
-    json: 4,
+  const COL_PX_PRICE = 66;
+  const COL_PX_STAT = 72;
+
+  const COLUMN_WIDTH_PX = {
+    icon: 72,
+    display: 288,
+    name: 288,
+    objectType: 192,
+    buy: COL_PX_PRICE,
+    sell: COL_PX_PRICE,
+    componentSell: COL_PX_PRICE,
+    profit: COL_PX_PRICE,
+    description: 384,
+    dmgPhysical: COL_PX_STAT,
+    meleeTimeBetweenAttacks: COL_PX_STAT,
+    meleeAttackRange: COL_PX_STAT,
+    dmgKnockback: COL_PX_STAT,
+    rtPhysicalDamage: COL_PX_STAT,
+    rtElementalDamage: COL_PX_STAT,
+    rtChemicalDamage: COL_PX_STAT,
+    rtKnockbackMagnitude: COL_PX_STAT,
+    clothAirDrain: COL_PX_STAT,
+    clothTraitWeight: COL_PX_STAT,
+    clothTraitHealth: COL_PX_STAT,
+    clothTraitStrength: COL_PX_STAT,
+    clothTraitAgility: COL_PX_STAT,
+    clothTraitIntelligence: COL_PX_STAT,
+    clothTraitArmour: COL_PX_STAT,
+    clothTraitElemRes: COL_PX_STAT,
+    clothTraitChemRes: COL_PX_STAT,
+    clothTraitFallRes: COL_PX_STAT,
+    clothTraitBuoyancy: COL_PX_STAT,
+    clothTraitRegen: COL_PX_STAT,
+    pbImpactDmgMult: COL_PX_STAT,
+    ghLatchRange: COL_PX_STAT,
+    ghThrowRange: COL_PX_STAT,
+    plMass: COL_PX_STAT,
+    plBuoyancy: COL_PX_STAT,
+    plHitPoints: COL_PX_STAT,
+    ppoMaxForce: COL_PX_STAT,
+    ppoResponsiveness: COL_PX_STAT,
+    peAvailableEnergy: COL_PX_STAT,
+    pgDamagePerChop: COL_PX_STAT,
+    pgMinChopDelay: COL_PX_STAT,
+    pgMaxChopDelay: COL_PX_STAT,
+    paMinShot: COL_PX_STAT,
+    paMaxShot: COL_PX_STAT,
+    paMaxProjSpeed: COL_PX_STAT,
+    paPhysDmg: COL_PX_STAT,
+    paKnockback: COL_PX_STAT,
+    json: 48,
   };
 
   const STORAGE_KEY = "windforge-item-catalog-ui-v1";
@@ -1705,17 +1705,10 @@
     cgHead.innerHTML = "";
     cgBody.innerHTML = "";
 
-    // Deterministic pixel widths:
-    // - same `weight` always maps to the same pixel width
-    // - doesn't depend on which other columns are visible
-    // - doesn't depend on container width
-    const PX_PER_WEIGHT = 12;
-
     let totalPx = 0;
     for (let j = 0; j < cols.length; j++) {
       const id = cols[j].id;
-      const w = COLUMN_LAYOUT_WEIGHT[id] ?? 6;
-      const px = Math.max(16, Math.round(w * PX_PER_WEIGHT));
+      const px = Math.max(16, COLUMN_WIDTH_PX[id] ?? COL_PX_STAT);
       totalPx += px;
       const col = document.createElement("col");
       col.style.width = px + "px";
