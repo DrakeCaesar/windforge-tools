@@ -78,11 +78,24 @@
 
   <main>
     <div class="table-wrap" id="table-root">
-      <table class="wiki-table">
-        <colgroup id="colgroup"></colgroup>
-        <thead id="thead"></thead>
-        <tbody id="tbody"></tbody>
-      </table>
+      <div class="table-split">
+        <div class="table-x-scroll">
+          <div class="table-x-scroll-inner">
+            <div class="table-head-wrap">
+              <table class="wiki-table wiki-table-head">
+                <colgroup id="colgroup-head"></colgroup>
+                <thead id="thead"></thead>
+              </table>
+            </div>
+            <div class="table-body-scroll" id="table-body-scroll">
+              <table class="wiki-table wiki-table-body">
+                <colgroup id="colgroup-body"></colgroup>
+                <tbody id="tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 

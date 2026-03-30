@@ -689,12 +689,14 @@
   }
 
   /**
-   * Relative widths for <colgroup> with `table-layout: fixed`.
+   * Relative widths for paired <colgroup> (header + body tables) with `table-layout: fixed`.
    * Renormalized over visible columns so virtual scroll doesn’t reflow columns per row batch.
    */
   const STAT_COLUMN_WEIGHT = 6
   
   const COLUMN_LAYOUT_WEIGHT = {
+    /* Wider than the 48px asset so the “Icon” header isn’t squeezed; body cells stay centered in the extra space. */
+    icon: 6,
     display: 24,
     name: 24,
     objectType: 16,
@@ -1546,7 +1548,7 @@
   }
 
   /**
-   * Same pipeline as table icons: optional mask tint, shared data-URL cache.
+   * Same pipeline as table icons: {@code .item-icon} CSS vertical flip, optional mask tint, shared data-URL cache.
    * @param {HTMLImageElement} img
    * @param {*} item
    * @param {string} url resolved PNG URL from {@link iconUrlFor}
@@ -1562,9 +1564,13 @@
       if (cached) {
         img.classList.add("item-icon--tinted");
         img.src = cached;
+        img.style.opacity = "1";
         return;
       }
     }
+    // Avoid flash for regular icons during virtual-scroll rerenders.
+    // Keep delayed reveal only for tint-generated icons.
+    img.style.opacity = tint ? "0" : "1";
     img.onerror = function () {
       if (opts && typeof opts.onLoadError === "function") {
         opts.onLoadError();
@@ -1579,9 +1585,18 @@
             if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
             img.classList.add("item-icon--tinted");
             img.src = dataUrl;
+            function reveal() {
+              img.style.opacity = "1";
+            }
+            if (typeof img.decode === "function") {
+              img.decode().then(reveal).catch(reveal);
+            } else {
+              img.addEventListener("load", reveal, { once: true });
+            }
             return;
           }
         }
+        img.style.opacity = "1";
       },
       { once: true }
     );
@@ -1683,10 +1698,12 @@
   }
 
   function buildColgroup() {
-    const cg = document.getElementById("colgroup");
-    if (!cg) return;
+    const cgHead = document.getElementById("colgroup-head");
+    const cgBody = document.getElementById("colgroup-body");
+    if (!cgHead || !cgBody) return;
     const cols = visibleColumns();
-    cg.innerHTML = "";
+    cgHead.innerHTML = "";
+    cgBody.innerHTML = "";
 
     // Deterministic pixel widths:
     // - same `weight` always maps to the same pixel width
@@ -1697,19 +1714,28 @@
     let totalPx = 0;
     for (let j = 0; j < cols.length; j++) {
       const id = cols[j].id;
-      const w = COLUMN_LAYOUT_WEIGHT[id];
+      const w = COLUMN_LAYOUT_WEIGHT[id] ?? 6;
       const px = Math.max(16, Math.round(w * PX_PER_WEIGHT));
       totalPx += px;
       const col = document.createElement("col");
       col.style.width = px + "px";
-      cg.appendChild(col);
+      cgHead.appendChild(col);
+      cgBody.appendChild(col.cloneNode(true));
     }
 
     // Force deterministic table sizing (prevents content-driven min-width expansion).
-    const table = cg.closest("table");
-    if (table) {
-      table.style.width = totalPx + "px";
+    const tableHead = cgHead.closest("table");
+    const tableBody = cgBody.closest("table");
+    if (tableHead) {
+      tableHead.style.width = totalPx + "px";
     }
+    if (tableBody) {
+      tableBody.style.width = totalPx + "px";
+    }
+  }
+
+  function getBodyScrollPort() {
+    return document.getElementById("table-body-scroll");
   }
 
   /**
@@ -2174,7 +2200,7 @@
 
   function renderVirtualBody() {
     const tbody = document.getElementById("tbody");
-    const wrap = document.getElementById("table-root");
+    const wrap = getBodyScrollPort();
     if (!tbody || !wrap) return;
 
     if (!rowHeightSynced) {
@@ -2304,7 +2330,7 @@
   }
 
   function ensureVirtualScrollListeners() {
-    const wrap = document.getElementById("table-root");
+    const wrap = getBodyScrollPort();
     if (!wrap) return;
     if (!virtualScrollAttached) {
       virtualScrollAttached = true;
@@ -2423,7 +2449,7 @@
     document.getElementById("count").textContent =
       list.length + " / " + data.ItemList.length + " items";
 
-    const wrap = document.getElementById("table-root");
+    const wrap = getBodyScrollPort();
     if (wrap) {
       wrap.scrollTop = 0;
     }

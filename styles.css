@@ -178,45 +178,93 @@ main {
 }
 
 .table-wrap {
-  /* Shrink-wrap the table when it is short, but cap to the available viewport height. */
+  /* Outer chrome; vertical scroll is `.table-body-scroll` so the header is not `position: sticky`. */
+  display: flex;
+  flex-direction: column;
   flex: 0 1 auto;
   min-height: 0;
   max-height: 100%;
   height: auto;
   width: fit-content;
-  /* Allow horizontal overflow so absolute column widths are not capped. */
   max-width: none;
   align-self: center;
   margin: 0 auto;
-  overflow: auto;
-  border: 1px solid var(--border);
+  overflow: hidden;
   border-radius: 4px;
   background: var(--panel);
+}
+
+.table-split {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  width: max-content;
+  max-width: 100%;
+}
+
+.table-x-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.table-x-scroll-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  width: max-content;
+}
+
+.table-head-wrap {
+  flex: 0 0 auto;
+}
+
+.table-body-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
 
-.table-wrap::-webkit-scrollbar {
+.table-x-scroll::-webkit-scrollbar,
+.table-body-scroll::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.table-wrap::-webkit-scrollbar-track {
+.table-x-scroll::-webkit-scrollbar-track,
+.table-body-scroll::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 5px;
 }
 
-.table-wrap::-webkit-scrollbar-thumb {
+.table-x-scroll::-webkit-scrollbar-thumb,
+.table-body-scroll::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 5px;
   border: 2px solid var(--scrollbar-track);
 }
 
-.table-wrap::-webkit-scrollbar-thumb:hover {
+.table-x-scroll::-webkit-scrollbar-thumb:hover,
+.table-body-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-.table-wrap::-webkit-scrollbar-corner {
+.table-x-scroll::-webkit-scrollbar-corner,
+.table-body-scroll::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
@@ -225,7 +273,8 @@ main {
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.85rem;
-  border: 1px solid var(--border);
+  /* Outer edge comes from perimeter `th`/`td` borders only (avoids doubling with `.table-wrap`). */
+  border: none;
 }
 
 .wiki-table thead th {
@@ -238,10 +287,6 @@ main {
   border: 1px solid var(--border);
   white-space: nowrap;
   vertical-align: middle;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  box-shadow: 0 1px 0 var(--border);
   overflow: hidden;
 }
 
@@ -294,6 +339,7 @@ main {
 }
 
 .wiki-table thead th.sortable {
+  position: relative;
   cursor: pointer;
   user-select: none;
   padding-right: 1.4rem;
@@ -357,6 +403,12 @@ main {
   vertical-align: top;
 }
 
+/* Body table sits below the header table: avoid a double line under thead.
+   Do not use `tr.v-row:first-of-type` — a top spacer row would break the border before the first data row. */
+.wiki-table-body tbody > tr:first-child:not(.v-spacer) td {
+  border-top: none;
+}
+
 .wiki-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -364,7 +416,8 @@ main {
 }
 
 .wiki-table td.col-icon {
-  width: 58px;
+  /* Width comes from <colgroup>; keep only a floor so the 48px icon + borders fit. Do not fix to ~58px or the header label stays cramped. */
+  min-width: 58px;
   text-align: center;
   vertical-align: middle;
   /* Table cells can be inconsistent with flexbox centering across browsers. */
