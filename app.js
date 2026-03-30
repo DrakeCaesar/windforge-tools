@@ -1546,7 +1546,7 @@
   }
 
   /**
-   * Same pipeline as table icons: {@code .item-icon} CSS vertical flip, optional mask tint, shared data-URL cache.
+   * Same pipeline as table icons: optional mask tint, shared data-URL cache.
    * @param {HTMLImageElement} img
    * @param {*} item
    * @param {string} url resolved PNG URL from {@link iconUrlFor}
@@ -1555,18 +1555,16 @@
   function wireCatalogItemIcon(img, item, url, opts) {
     img.alt = "";
     img.classList.add("item-icon");
+    const tint = getTintColorsForItem(item);
     const tk = tintCacheKey(url, item);
     if (tk) {
       const cached = tintedIconDataUrlCache.get(tk);
       if (cached) {
         img.classList.add("item-icon--tinted");
         img.src = cached;
-        img.style.opacity = "1";
         return;
       }
     }
-    img.style.opacity = "0";
-    img.src = url;
     img.onerror = function () {
       if (opts && typeof opts.onLoadError === "function") {
         opts.onLoadError();
@@ -1575,29 +1573,19 @@
     img.addEventListener(
       "load",
       function onIconDecoded() {
-        img.removeEventListener("load", onIconDecoded);
-        const tint = getTintColorsForItem(item);
         if (tint) {
           const dataUrl = applyEquipmentMaskTint(img, tint.primary, tint.secondary);
           if (dataUrl) {
             if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
             img.classList.add("item-icon--tinted");
             img.src = dataUrl;
-            function reveal() {
-              img.style.opacity = "1";
-            }
-            if (typeof img.decode === "function") {
-              img.decode().then(reveal).catch(reveal);
-            } else {
-              img.addEventListener("load", reveal, { once: true });
-            }
             return;
           }
         }
-        img.style.opacity = "1";
       },
       { once: true }
     );
+    img.src = url;
   }
 
   function matchesQuery(item, q) {

@@ -428,7 +428,6 @@ main {
   background: #0a0c12;
   object-fit: contain;
   border: 1px solid var(--border);
-  transition: opacity 0.12s ease;
   vertical-align: middle;
   display: inline-block;
 }
