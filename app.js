@@ -1464,6 +1464,9 @@
    */
   const FULL_COLOR_ITEM_NAMES = new Set(["AetherkinAmmo"]);
 
+  /** Full-colour icons: avg hue of primary+secondary, half saturation (see {@link applyHuePaletteRemap}). */
+  const HUE_PALETTE_REMAP = new Set(["AirBulb"]);
+
   function isFullColorPickup(item) {
     if (item && typeof item.name === "string" && FULL_COLOR_ITEM_NAMES.has(item.name)) {
       return true;
@@ -1495,7 +1498,114 @@
     if (!getTintColorsForItem(item)) return null;
     const names = getIconColorNames(item);
     if (!names) return null;
-    return iconUrl + "\0" + names.primary + "\0" + names.secondary;
+    const mode = HUE_PALETTE_REMAP.has(item && item.name) ? "hueAvgHalfSat" : "mask";
+    return iconUrl + "\0" + names.primary + "\0" + names.secondary + "\0" + mode;
+  }
+
+  /** Full-colour pickup: circular mean hue of palette colours, pixel saturation halved. */
+  function applyHuePaletteRemap(img, primaryRgb, secondaryRgb) {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    try {
+      ctx.drawImage(img, 0, 0);
+    } catch (e) {
+      return null;
+    }
+    let imageData;
+    try {
+      imageData = ctx.getImageData(0, 0, w, h);
+    } catch (e) {
+      return null;
+    }
+    const d = imageData.data;
+
+    function toHsl(r, g, b) {
+      r /= 255;
+      g /= 255;
+      b /= 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const l = (max + min) / 2;
+      let ho = 0;
+      let s = 0;
+      if (max !== min) {
+        const diff = max - min;
+        s = l > 0.5 ? diff / (2 - max - min) : diff / (max + min);
+        switch (max) {
+          case r:
+            ho = (g - b) / diff + (g < b ? 6 : 0);
+            break;
+          case g:
+            ho = (b - r) / diff + 2;
+            break;
+          default:
+            ho = (r - g) / diff + 4;
+        }
+        ho /= 6;
+      }
+      return { h: ho * 360, s, l };
+    }
+
+    function toRgb(hDeg, s, l) {
+      let hh = (((hDeg % 360) + 360) % 360) / 360;
+      let r;
+      let g;
+      let b;
+      if (s === 0) {
+        r = g = b = l;
+      } else {
+        const hue2rgb = function (p, q, tt) {
+          if (tt < 0) tt += 1;
+          if (tt > 1) tt -= 1;
+          if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+          if (tt < 1 / 2) return q;
+          if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+          return p;
+        };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, hh + 1 / 3);
+        g = hue2rgb(p, q, hh);
+        b = hue2rgb(p, q, hh - 1 / 3);
+      }
+      return {
+        r: Math.min(255, Math.max(0, Math.round(r * 255))),
+        g: Math.min(255, Math.max(0, Math.round(g * 255))),
+        b: Math.min(255, Math.max(0, Math.round(b * 255))),
+      };
+    }
+
+    const hp = toHsl(primaryRgb.r, primaryRgb.g, primaryRgb.b).h;
+    const hs = toHsl(secondaryRgb.r, secondaryRgb.g, secondaryRgb.b).h;
+    const a1 = (hp * Math.PI) / 180;
+    const a2 = (hs * Math.PI) / 180;
+    const cx = Math.cos(a1) + Math.cos(a2);
+    const sy = Math.sin(a1) + Math.sin(a2);
+    const mag = Math.hypot(cx, sy);
+    let targetHue =
+      mag < 1e-10 ? ((hp + hs) * 0.5 + 360) % 360 : (Math.atan2(sy, cx) * 180) / Math.PI;
+    if (targetHue < 0) targetHue += 360;
+
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 4) continue;
+      const hsl = toHsl(d[i], d[i + 1], d[i + 2]);
+      const out = toRgb(targetHue, hsl.s * 0.5, hsl.l);
+      d[i] = out.r;
+      d[i + 1] = out.g;
+      d[i + 2] = out.b;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    try {
+      return canvas.toDataURL("image/png");
+    } catch (e) {
+      return null;
+    }
   }
 
   function applyEquipmentMaskTint(img, primaryRgb, secondaryRgb) {
@@ -1580,7 +1690,9 @@
       "load",
       function onIconDecoded() {
         if (tint) {
-          const dataUrl = applyEquipmentMaskTint(img, tint.primary, tint.secondary);
+          const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+            ? applyHuePaletteRemap(img, tint.primary, tint.secondary)
+            : applyEquipmentMaskTint(img, tint.primary, tint.secondary);
           if (dataUrl) {
             if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
             img.classList.add("item-icon--tinted");
