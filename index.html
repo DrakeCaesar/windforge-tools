@@ -16,9 +16,32 @@
       </label>
       <label>
         Object type
-        <select id="filter-object-type" title="Filter by objectType">
-          <option value="">All object types</option>
-        </select>
+        <div class="object-type-dropdown" id="object-type-dropdown-root">
+          <button
+            type="button"
+            id="filter-object-type-btn"
+            class="object-type-dropdown__btn"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="filter-object-type-panel"
+          >
+            <span id="filter-object-type-label">All object types</span>
+          </button>
+          <div
+            id="filter-object-type-panel"
+            class="object-type-dropdown__panel"
+            hidden
+            role="listbox"
+            aria-labelledby="filter-object-type-btn"
+          ></div>
+          <select
+            id="filter-object-type"
+            class="object-type-filter-select-hidden"
+            tabindex="-1"
+            aria-hidden="true"
+            title="Filter by objectType"
+          ></select>
+        </div>
       </label>
       <label>
         Then by internal name

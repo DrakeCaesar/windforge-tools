@@ -8,7 +8,7 @@
   --border: #2a3148;
   --text: #e6e9f2;
   --muted: #8b93a8;
-  --accent: #6b9fff;
+  --accent: #4766c5;
   --thead-bg: #1e2436;
   --stripe: rgba(255, 255, 255, 0.03);
   --scrollbar-track: #12151c;
@@ -110,7 +110,7 @@ body {
 }
 
 .controls input[type="search"],
-.controls select,
+.controls select:not(.object-type-filter-select-hidden),
 .controls input[type="number"] {
   min-width: 224px;
   padding: 4px 8px;
@@ -125,37 +125,169 @@ body {
   min-width: 288px;
 }
 
-#filter-object-type {
-  min-width: 256px;
-  max-width: 448px;
-}
-
 #secondary-sort {
   min-width: 192px;
   max-width: 352px;
 }
 
-#filter-object-type optgroup {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--muted);
+/* Custom object-type listbox (replaces native <select> open UI). */
+.object-type-dropdown {
+  position: relative;
+  min-width: 256px;
+  max-width: 448px;
 }
 
-#filter-object-type option {
-  font-weight: normal;
-  font-size: 14px;
-  color: var(--text);
+.object-type-filter-select-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
 }
 
-.controls button {
-  padding: 6px 12px;
+.object-type-dropdown__btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 28px 4px 8px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
-  cursor: pointer;
   font-size: 14px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
 }
+
+.object-type-dropdown__btn:hover {
+  border-color: var(--accent);
+}
+
+.object-type-dropdown__btn::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-top: -2px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--muted);
+  pointer-events: none;
+}
+
+.object-type-dropdown__panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 200;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(448px, 92vw);
+  max-height: min(70vh, 480px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 75%, var(--panel));
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.object-type-dropdown__panel[hidden] {
+  display: none !important;
+}
+
+.object-type-dropdown__group-label {
+  padding: 4px 10px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+  pointer-events: none;
+}
+
+.object-type-dropdown__option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.object-type-dropdown__option--indented {
+  padding-left: 26px;
+}
+
+.object-type-dropdown__option:hover {
+  background: color-mix(in srgb, var(--accent) 35%, var(--panel));
+}
+
+.object-type-dropdown__option--selected,
+.object-type-dropdown__option--selected:hover {
+  background: var(--accent);
+  color: var(--text);
+}
+
+/* WebKit scrollbar (palette only) */
+.object-type-dropdown__panel::-webkit-scrollbar {
+  width: 14px;
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 7px;
+  border: 3px solid var(--scrollbar-track);
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-button:single-button {
+  display: block;
+  height: 12px;
+  background: var(--scrollbar-track);
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background:
+    linear-gradient(var(--scrollbar-track), var(--scrollbar-track)) center/100% 100% no-repeat,
+    linear-gradient(135deg, transparent 50%, var(--muted) 50%) center/8px 8px no-repeat;
+}
+
+.object-type-dropdown__panel::-webkit-scrollbar-button:single-button:vertical:increment {
+  background:
+    linear-gradient(var(--scrollbar-track), var(--scrollbar-track)) center/100% 100% no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--muted) 50%) center/8px 8px no-repeat;
+}
+
+
 
 .controls button:hover {
   border-color: var(--accent);

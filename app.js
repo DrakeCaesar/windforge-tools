@@ -1813,6 +1813,122 @@
       return opt.value === previous;
     });
     sel.value = canRestore ? previous : "";
+
+    syncObjectTypeDropdownPanel();
+  }
+
+  function updateObjectTypeDropdownLabel() {
+    const sel = document.getElementById("filter-object-type");
+    const labelEl = document.getElementById("filter-object-type-label");
+    if (!sel || !labelEl) return;
+    const opt = sel.options[sel.selectedIndex];
+    labelEl.textContent = opt ? opt.textContent : "All object types";
+  }
+
+  function syncObjectTypeDropdownPanel() {
+    const sel = document.getElementById("filter-object-type");
+    const panel = document.getElementById("filter-object-type-panel");
+    if (!sel || !panel) return;
+
+    panel.innerHTML = "";
+    const current = sel.value;
+
+    function addOptionButton(value, text, opts) {
+      const indented = opts && opts.indented;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "option");
+      b.className = "object-type-dropdown__option";
+      if (indented) b.classList.add("object-type-dropdown__option--indented");
+      b.setAttribute("data-value", value);
+      b.textContent = text;
+      const selected = value === current;
+      b.setAttribute("aria-selected", selected ? "true" : "false");
+      if (selected) b.classList.add("object-type-dropdown__option--selected");
+      panel.appendChild(b);
+    }
+
+    function addGroupLabel(text) {
+      const d = document.createElement("div");
+      d.className = "object-type-dropdown__group-label";
+      d.setAttribute("role", "presentation");
+      d.textContent = text;
+      panel.appendChild(d);
+    }
+
+    for (let i = 0; i < sel.children.length; i++) {
+      const node = sel.children[i];
+      if (node.nodeName === "OPTION") {
+        addOptionButton(node.value, node.textContent || node.value, { indented: false });
+      } else if (node.nodeName === "OPTGROUP") {
+        addGroupLabel(node.label || "");
+        for (let j = 0; j < node.children.length; j++) {
+          const o = node.children[j];
+          if (o.nodeName === "OPTION") {
+            addOptionButton(o.value, o.textContent || o.value, { indented: true });
+          }
+        }
+      }
+    }
+
+    updateObjectTypeDropdownLabel();
+  }
+
+  function closeObjectTypePanel() {
+    const panel = document.getElementById("filter-object-type-panel");
+    const btn = document.getElementById("filter-object-type-btn");
+    if (panel) panel.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  function setObjectTypeFilterFromDropdown(value) {
+    const sel = document.getElementById("filter-object-type");
+    if (!sel) return;
+    sel.value = value;
+    syncObjectTypeDropdownPanel();
+    closeObjectTypePanel();
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function initObjectTypeDropdown() {
+    const btn = document.getElementById("filter-object-type-btn");
+    const panel = document.getElementById("filter-object-type-panel");
+    const root = document.getElementById("object-type-dropdown-root");
+    if (!btn || !panel || !root) return;
+
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (panel.hidden) {
+        panel.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+        const selected = panel.querySelector(".object-type-dropdown__option--selected");
+        if (selected) {
+          selected.scrollIntoView({ block: "nearest" });
+        }
+      } else {
+        closeObjectTypePanel();
+      }
+    });
+
+    panel.addEventListener("click", function (e) {
+      const opt = e.target.closest(".object-type-dropdown__option");
+      if (!opt) return;
+      e.stopPropagation();
+      const value = opt.getAttribute("data-value");
+      setObjectTypeFilterFromDropdown(value != null ? value : "");
+    });
+
+    document.addEventListener("click", function (e) {
+      if (panel.hidden) return;
+      if (root.contains(e.target)) return;
+      closeObjectTypePanel();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) {
+        closeObjectTypePanel();
+      }
+    });
   }
 
   function getSortValue(item, colId) {
@@ -2558,6 +2674,7 @@
 
   document.getElementById("q").addEventListener("input", scheduleRenderFromSearch);
   document.getElementById("filter-object-type").addEventListener("change", render);
+  initObjectTypeDropdown();
   const wisdomEl = document.getElementById("wisdom-stat");
   if (wisdomEl) {
     wisdomEl.addEventListener("input", function () {
