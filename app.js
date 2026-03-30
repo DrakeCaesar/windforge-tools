@@ -1899,6 +1899,7 @@
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
       if (panel.hidden) {
+        closeSecondarySortPanel();
         panel.hidden = false;
         btn.setAttribute("aria-expanded", "true");
         const selected = panel.querySelector(".object-type-dropdown__option--selected");
@@ -1927,6 +1928,99 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) {
         closeObjectTypePanel();
+      }
+    });
+  }
+
+  function updateSecondarySortDropdownLabel() {
+    const sel = document.getElementById("secondary-sort");
+    const labelEl = document.getElementById("secondary-sort-label");
+    if (!sel || !labelEl) return;
+    const opt = sel.options[sel.selectedIndex];
+    labelEl.textContent = opt ? opt.textContent : "";
+  }
+
+  function syncSecondarySortDropdownPanel() {
+    const sel = document.getElementById("secondary-sort");
+    const panel = document.getElementById("secondary-sort-panel");
+    if (!sel || !panel) return;
+
+    panel.innerHTML = "";
+    const current = sel.value;
+
+    for (let i = 0; i < sel.options.length; i++) {
+      const o = sel.options[i];
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "option");
+      b.className = "object-type-dropdown__option";
+      b.setAttribute("data-value", o.value);
+      b.textContent = o.textContent || o.value;
+      const selected = o.value === current;
+      b.setAttribute("aria-selected", selected ? "true" : "false");
+      if (selected) b.classList.add("object-type-dropdown__option--selected");
+      panel.appendChild(b);
+    }
+
+    updateSecondarySortDropdownLabel();
+  }
+
+  function closeSecondarySortPanel() {
+    const panel = document.getElementById("secondary-sort-panel");
+    const btn = document.getElementById("secondary-sort-btn");
+    if (panel) panel.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  function setSecondarySortFromDropdown(value) {
+    const sel = document.getElementById("secondary-sort");
+    if (!sel) return;
+    sel.value = value;
+    syncSecondarySortDropdownPanel();
+    closeSecondarySortPanel();
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function initSecondarySortDropdown() {
+    const btn = document.getElementById("secondary-sort-btn");
+    const panel = document.getElementById("secondary-sort-panel");
+    const root = document.getElementById("secondary-sort-dropdown-root");
+    if (!btn || !panel || !root) return;
+
+    syncSecondarySortDropdownPanel();
+
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (panel.hidden) {
+        closeObjectTypePanel();
+        panel.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+        const selected = panel.querySelector(".object-type-dropdown__option--selected");
+        if (selected) {
+          selected.scrollIntoView({ block: "nearest" });
+        }
+      } else {
+        closeSecondarySortPanel();
+      }
+    });
+
+    panel.addEventListener("click", function (e) {
+      const opt = e.target.closest(".object-type-dropdown__option");
+      if (!opt) return;
+      e.stopPropagation();
+      const value = opt.getAttribute("data-value");
+      setSecondarySortFromDropdown(value != null ? value : "");
+    });
+
+    document.addEventListener("click", function (e) {
+      if (panel.hidden) return;
+      if (root.contains(e.target)) return;
+      closeSecondarySortPanel();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) {
+        closeSecondarySortPanel();
       }
     });
   }
@@ -2675,6 +2769,7 @@
   document.getElementById("q").addEventListener("input", scheduleRenderFromSearch);
   document.getElementById("filter-object-type").addEventListener("change", render);
   initObjectTypeDropdown();
+  initSecondarySortDropdown();
   const wisdomEl = document.getElementById("wisdom-stat");
   if (wisdomEl) {
     wisdomEl.addEventListener("input", function () {
@@ -2686,6 +2781,38 @@
       render();
     });
   }
+
+  function initWisdomSpinButtons() {
+    const input = document.getElementById("wisdom-stat");
+    const wrap = input && input.closest(".number-input-spin");
+    if (!input || !wrap) return;
+    const up = wrap.querySelector(".number-input-spin__btn--up");
+    const down = wrap.querySelector(".number-input-spin__btn--down");
+    function stepVal() {
+      const s = input.step ? parseFloat(input.step) : 1;
+      return Number.isFinite(s) && s > 0 ? s : 1;
+    }
+    function minVal() {
+      return input.min !== "" ? parseFloat(input.min) : -Infinity;
+    }
+    function maxVal() {
+      return input.max !== "" ? parseFloat(input.max) : Infinity;
+    }
+    function bump(delta) {
+      let v = parseFloat(input.value);
+      if (!Number.isFinite(v)) v = 0;
+      const st = stepVal();
+      const raw = v + delta * st;
+      const snapped = Math.round(raw / st) * st;
+      const clamped = Math.min(maxVal(), Math.max(minVal(), snapped));
+      input.value = String(clamped);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (up) up.addEventListener("click", function () { bump(1); });
+    if (down) down.addEventListener("click", function () { bump(-1); });
+  }
+  initWisdomSpinButtons();
 
   const hideSpecialEl = document.getElementById("hide-special-items");
   if (hideSpecialEl) {
@@ -2761,6 +2888,7 @@
     populateObjectTypeFilter(persisted);
     if (secondarySortEl) {
       secondarySortEl.value = secondarySortMode;
+      syncSecondarySortDropdownPanel();
     }
     const qEl = document.getElementById("q");
     if (qEl && persisted) {

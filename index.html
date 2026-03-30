@@ -44,15 +44,58 @@
         </div>
       </label>
       <label>
-        Then by internal name
-        <select id="secondary-sort" title="Suffix mode: with Display name or Internal name as the sorted column, order by last word/segment first. Other sorted columns use it only when values tie.">
-          <option value="name">Alphabetical</option>
-          <option value="nameSuffixWords">Last segment first (group endings)</option>
-        </select>
+        Sort mode
+        <div class="object-type-dropdown object-type-dropdown--compact" id="secondary-sort-dropdown-root">
+          <button
+            type="button"
+            id="secondary-sort-btn"
+            class="object-type-dropdown__btn"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="secondary-sort-panel"
+          >
+            <span id="secondary-sort-label">Alphabetical</span>
+          </button>
+          <div
+            id="secondary-sort-panel"
+            class="object-type-dropdown__panel"
+            hidden
+            role="listbox"
+            aria-labelledby="secondary-sort-btn"
+          ></div>
+          <select
+            id="secondary-sort"
+            class="object-type-filter-select-hidden"
+            tabindex="-1"
+            aria-hidden="true"
+            title="Suffix mode: with Display name or Internal name as the sorted column, order by last word/segment first. Other sorted columns use it only when values tie."
+          >
+            <option value="name">Alphabetical</option>
+            <option value="nameSuffixWords">Last segment first (group endings)</option>
+          </select>
+        </div>
       </label>
       <label title="Character wisdom stat used for store price adjustment">
         Wisdom
-        <input type="number" id="wisdom-stat" min="0" max="100" step="1" value="0" />
+        <span class="number-input-spin">
+          <input type="number" id="wisdom-stat" min="0" max="100" step="1" value="0" />
+          <span class="number-input-spin__btns" aria-hidden="true">
+            <button
+              type="button"
+              class="number-input-spin__btn number-input-spin__btn--up"
+              tabindex="-1"
+              title="Increase wisdom"
+              aria-label="Increase wisdom"
+            ></button>
+            <button
+              type="button"
+              class="number-input-spin__btn number-input-spin__btn--down"
+              tabindex="-1"
+              title="Decrease wisdom"
+              aria-label="Decrease wisdom"
+            ></button>
+          </span>
+        </span>
       </label>
       <div class="special-filters" title="Special-items filters">
         <label

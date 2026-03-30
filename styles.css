@@ -1,8 +1,10 @@
 :root {
-/* Virtual-scroll row height (spacers rely on this). Keep rows fixed-height. */
+  /* Virtual-scroll row height (spacers rely on this). Keep rows fixed-height. */
   --v-row-height: 60px;
   /* Main content + table width cap (wider than typical prose for many columns). */
   --catalog-max-width: 2048px;
+
+  /* Base palette — only these use raw color literals. */
   --bg: #0f1218;
   --panel: #181c2a;
   --border: #2a3148;
@@ -10,10 +12,24 @@
   --muted: #8b93a8;
   --accent: #4766c5;
   --thead-bg: #1e2436;
-  --stripe: rgba(255, 255, 255, 0.03);
+  --stripe: color-mix(in srgb, var(--text) 3%, transparent);
   --scrollbar-track: #12151c;
   --scrollbar-thumb: #2f3648;
   --scrollbar-thumb-hover: #3d4a63;
+
+  /* Derived (reference base tokens only). */
+  --top-gradient-start: color-mix(in srgb, var(--thead-bg) 55%, var(--bg));
+  --meta-code: color-mix(in srgb, var(--text) 82%, var(--accent));
+  --sortable-hover: color-mix(in srgb, var(--thead-bg) 50%, var(--accent));
+  --td-desc: color-mix(in srgb, var(--text) 78%, var(--muted));
+  --name-code: color-mix(in srgb, var(--muted) 55%, var(--accent));
+  --deep-surface: color-mix(in srgb, var(--bg) 92%, var(--panel));
+  --link-hover: color-mix(in srgb, var(--accent) 65%, var(--text));
+  --overlay-backdrop: color-mix(in srgb, var(--bg) 55%, transparent);
+  --surface-hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --recipe-icon-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+  --shadow-pop: color-mix(in srgb, var(--bg) 50%, transparent);
+  --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
 }
 
 * {
@@ -41,7 +57,7 @@ body {
   flex-shrink: 0;
   padding: 16px 20px 20px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, #151a28, var(--bg));
+  background: linear-gradient(180deg, var(--top-gradient-start), var(--bg));
 }
 
 .top h1 {
@@ -59,7 +75,7 @@ body {
 
 .meta code {
   font-size: 12px;
-  color: #c9d4f0;
+  color: var(--meta-code);
 }
 
 .controls {
@@ -110,8 +126,7 @@ body {
 }
 
 .controls input[type="search"],
-.controls select:not(.object-type-filter-select-hidden),
-.controls input[type="number"] {
+.controls select:not(.object-type-filter-select-hidden) {
   min-width: 224px;
   padding: 4px 8px;
   border-radius: 6px;
@@ -125,9 +140,108 @@ body {
   min-width: 288px;
 }
 
-#secondary-sort {
-  min-width: 192px;
-  max-width: 352px;
+/* Wisdom number: custom spinner (matches scrollbar arrow strip). */
+.controls .number-input-spin {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 224px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+.controls .number-input-spin input[type="number"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.35;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.controls .number-input-spin input[type="number"]::-webkit-outer-spin-button,
+.controls .number-input-spin input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.controls .number-input-spin__btns {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 22px;
+  border-left: 1px solid var(--border);
+  background: var(--scrollbar-track);
+}
+
+.controls .number-input-spin__btn {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--scrollbar-track);
+  cursor: pointer;
+}
+
+/* Same triangle technique as `.object-type-dropdown__btn::after` (border chevrons). */
+.controls .number-input-spin__btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  pointer-events: none;
+}
+
+.controls .number-input-spin__btn--up::after {
+  margin-top: -3px;
+  border-bottom: 5px solid var(--muted);
+  border-top: 0;
+}
+
+.controls .number-input-spin__btn--down::after {
+  margin-top: -1px;
+  border-top: 5px solid var(--muted);
+  border-bottom: 0;
+}
+
+.controls .number-input-spin__btn--up {
+  border-bottom: 1px solid var(--border);
+}
+
+.controls .number-input-spin__btn:hover {
+  background: var(--scrollbar-thumb);
+}
+
+.controls .number-input-spin__btn--up:hover::after {
+  border-bottom-color: var(--text);
+}
+
+.controls .number-input-spin__btn--down:hover::after {
+  border-top-color: var(--text);
+}
+
+.controls .number-input-spin__btn:active {
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Custom object-type listbox (replaces native <select> open UI). */
@@ -135,6 +249,11 @@ body {
   position: relative;
   min-width: 256px;
   max-width: 448px;
+}
+
+.object-type-dropdown--compact {
+  min-width: 192px;
+  max-width: 352px;
 }
 
 .object-type-filter-select-hidden {
@@ -479,7 +598,7 @@ main {
 }
 
 .wiki-table thead th.sortable:hover {
-  background: #252c42;
+  background: var(--sortable-hover);
 }
 
 .wiki-table thead th.sortable .sort-hint {
@@ -487,22 +606,58 @@ main {
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 11px;
-  color: var(--accent);
+  width: 10px;
+  height: 10px;
+  font-size: 0;
+  pointer-events: none;
+}
+
+/* Border chevrons / diamond (same technique as `.object-type-dropdown__btn::after` / wisdom spin). */
+.wiki-table thead th.sortable[aria-sort="ascending"] .sort-hint::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  margin-top: -4px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid var(--accent);
+  border-top: 0;
   opacity: 0.9;
 }
 
-.wiki-table thead th.sortable[aria-sort="ascending"] .sort-hint::after {
-  content: " ▲";
-}
-
 .wiki-table thead th.sortable[aria-sort="descending"] .sort-hint::after {
-  content: " ▼";
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  margin-top: -2px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--accent);
+  border-bottom: 0;
+  opacity: 0.9;
 }
 
 .wiki-table thead th.sortable[aria-sort="none"] .sort-hint::after {
-  content: " ◇";
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  margin-top: -2.5px;
+  border: 1px solid var(--accent);
   opacity: 0.35;
+  box-sizing: border-box;
+  transform: rotate(45deg);
 }
 
 .wiki-table tbody td {
@@ -583,7 +738,7 @@ main {
   overflow-wrap: break-word;
   word-break: break-word;
   font-size: 13px;
-  color: #c5cce0;
+  color: var(--td-desc);
 }
 
 .wiki-table td.col-name {
@@ -593,7 +748,7 @@ main {
 /* Line breaks prefer camelCase boundaries (U+200B inserted in app.js). */
 .wiki-table td.col-name code {
   font-size: 12px;
-  color: #aab6d4;
+  color: var(--name-code);
   white-space: normal;
   overflow-wrap: break-word;
   word-break: normal;
@@ -611,7 +766,7 @@ main {
      eat into the image area and make the icon look smaller. */
   box-sizing: content-box;
   border-radius: 4px;
-  background: #0a0c12;
+  background: var(--deep-surface);
   object-fit: contain;
   border: 1px solid var(--border);
   vertical-align: middle;
@@ -646,7 +801,7 @@ main {
 }
 
 .json-open-btn:hover {
-  color: #9ec0ff;
+  color: var(--link-hover);
 }
 
 .json-open-btn:focus-visible {
@@ -666,7 +821,7 @@ main {
 }
 
 .json-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-backdrop);
 }
 
 .json-dialog-head {
@@ -696,7 +851,7 @@ main {
 
 .json-dialog-close:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
 }
 
 .json-dialog-pre {
@@ -706,7 +861,7 @@ main {
   overflow: auto;
   font-size: 12px;
   line-height: 1.45;
-  background: #0a0c12;
+  background: var(--deep-surface);
   border-radius: 0 0 7px 7px;
   border: none;
   tab-size: 2;
@@ -745,7 +900,7 @@ main {
 /* Craft recipe hover (icons with a recipe in recipesByProduct) */
 .item-icon--recipe {
   cursor: help;
-  box-shadow: 0 0 0 1px rgba(107, 159, 255, 0.35);
+  box-shadow: 0 0 0 1px var(--recipe-icon-glow);
   border-radius: 4px;
 }
 
@@ -757,7 +912,7 @@ main {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 28px var(--shadow-pop);
   pointer-events: none;
   font-size: 13px;
   line-height: 1.35;
@@ -813,7 +968,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--recipe-ing-bg);
   border-radius: 4px;
   font-size: 10px;
   color: var(--muted);
