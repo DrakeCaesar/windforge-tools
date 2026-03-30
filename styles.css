@@ -10,7 +10,7 @@
   --border: #2a3148;
   --text: #e6e9f2;
   --muted: #8b93a8;
-  --accent: #4766c5;
+  --accent: #39529e;
   --thead-bg: #1e2436;
   --stripe: color-mix(in srgb, var(--text) 3%, transparent);
   --scrollbar-track: #12151c;
@@ -103,11 +103,36 @@ body {
   color: var(--text);
 }
 
-.controls label.controls-checkbox-row input {
+.controls label.controls-checkbox-row input[type="checkbox"] {
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
-  accent-color: var(--accent);
+  margin: 0;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel);
+  vertical-align: middle;
+}
+
+.controls label.controls-checkbox-row input[type="checkbox"]:hover {
+  border-color: var(--muted);
+}
+
+.controls label.controls-checkbox-row input[type="checkbox"]:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath stroke='%23e6e9f2' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.2l3 2.8 6.2-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 50% 55%;
+  background-size: 11px 11px;
+}
+
+.controls label.controls-checkbox-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .special-filters {
