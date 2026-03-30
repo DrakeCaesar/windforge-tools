@@ -1,0 +1,2 @@
+# Optional: for --export-png-icons (DDS → PNG)
+imageio>=2.31.0

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Windforge ItemList</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="controls">
+      <h1>Windforge items</h1>
+      <label>
+        Search
+        <input type="search" id="q" placeholder="Name, type, description, icon colour names…" autocomplete="off" />
+      </label>
+      <label>
+        Object type
+        <select id="filter-object-type" title="Filter by objectType">
+          <option value="">All object types</option>
+        </select>
+      </label>
+      <label>
+        Then by internal name
+        <select id="secondary-sort" title="Suffix mode: with Display name or Internal name as the sorted column, order by last word/segment first. Other sorted columns use it only when values tie.">
+          <option value="name">Alphabetical</option>
+          <option value="nameSuffixWords">Last segment first (group endings)</option>
+        </select>
+      </label>
+      <label title="Character wisdom stat used for store price adjustment">
+        Wisdom
+        <input type="number" id="wisdom-stat" min="0" max="100" step="1" value="0" />
+      </label>
+      <div class="special-filters" title="Special-items filters">
+        <label
+          class="controls-checkbox-row"
+          title="When checked, hide UnknownIcon items, Debug/Test items, and Paratrooper red Torso clothing (IconRed1/IconRed2)."
+        >
+          <input type="checkbox" id="hide-special-items" />
+          <span>Hide Special Items</span>
+        </label>
+
+        <label
+          class="controls-checkbox-row"
+          title="When checked, show only UnknownIcon items, Debug/Test items, and Paratrooper red Torso clothing (IconRed1/IconRed2)."
+        >
+          <input type="checkbox" id="show-special-only" />
+          <span>Show Special Only</span>
+        </label>
+      </div>
+
+      <div class="special-filters" title="Hide crafted tier variants">
+        <label
+          class="controls-checkbox-row"
+          title="Hide normal tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
+        >
+          <input type="checkbox" id="hide-normal-tier" />
+          <span>Hide Normal</span>
+        </label>
+        <label
+          class="controls-checkbox-row"
+          title="Hide quality tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
+        >
+          <input type="checkbox" id="hide-quality-tier" />
+          <span>Hide Quality</span>
+        </label>
+        <label
+          class="controls-checkbox-row"
+          title="Hide mastercraft tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
+        >
+          <input type="checkbox" id="hide-mastercraft-tier" />
+          <span>Hide MasterCraft</span>
+        </label>
+      </div>
+      <span id="count" class="count"></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="table-wrap" id="table-root">
+      <table class="wiki-table">
+        <colgroup id="colgroup"></colgroup>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div id="recipe-tooltip" class="recipe-tooltip" hidden role="tooltip"></div>
+
+  <dialog id="json-dialog" class="json-dialog" aria-labelledby="json-dialog-title">
+    <div class="json-dialog-head">
+      <span id="json-dialog-title">Raw item data</span>
+      <button type="button" id="json-dialog-close" class="json-dialog-close" aria-label="Close">×</button>
+    </div>
+    <pre id="json-dialog-pre" class="json-dialog-pre"></pre>
+  </dialog>
+
+  <script src="colors.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

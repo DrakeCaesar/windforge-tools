@@ -1,0 +1,658 @@
+:root {
+/* Virtual-scroll row height (spacers rely on this). Keep rows fixed-height. */
+  --v-row-height: 60px;
+  /* Main content + table width cap (wider than typical prose for many columns). */
+  --catalog-max-width: 128rem;
+  --bg: #0f1218;
+  --panel: #181c2a;
+  --border: #2a3148;
+  --text: #e6e9f2;
+  --muted: #8b93a8;
+  --accent: #6b9fff;
+  --thead-bg: #1e2436;
+  --stripe: rgba(255, 255, 255, 0.03);
+  --scrollbar-track: #12151c;
+  --scrollbar-thumb: #2f3648;
+  --scrollbar-thumb-hover: #3d4a63;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, Segoe UI, Roboto, Ubuntu, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.top {
+  flex-shrink: 0;
+  padding: 1rem 1.25rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #151a28, var(--bg));
+}
+
+.top h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+
+.meta {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  max-width: var(--catalog-max-width);
+}
+
+.meta code {
+  font-size: 0.78rem;
+  color: #c9d4f0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.controls label.controls-checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  align-self: center;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+}
+
+.controls label.controls-checkbox-row input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.special-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-self: center;
+  align-items: flex-start;
+  width: max-content;
+}
+
+.special-filters .controls-checkbox-row {
+  align-self: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.controls input[type="search"],
+.controls select,
+.controls input[type="number"] {
+  min-width: 14rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.controls input[type="search"] {
+  min-width: 18rem;
+}
+
+#filter-object-type {
+  min-width: 16rem;
+  max-width: 28rem;
+}
+
+#secondary-sort {
+  min-width: 12rem;
+  max-width: 22rem;
+}
+
+#filter-object-type optgroup {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+#filter-object-type option {
+  font-weight: normal;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.controls button {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.controls button:hover {
+  border-color: var(--accent);
+}
+
+.count {
+  font-size: 0.85rem;
+  color: var(--muted);
+  align-self: center;
+}
+
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1rem 1rem;
+  /* Let the table grow purely based on computed column widths. */
+  margin: 0 auto;
+  width: 100%;
+}
+
+.table-wrap {
+  /* Shrink-wrap the table when it is short, but cap to the available viewport height. */
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  height: auto;
+  width: fit-content;
+  /* Allow horizontal overflow so absolute column widths are not capped. */
+  max-width: none;
+  align-self: center;
+  margin: 0 auto;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+.table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 5px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+  border: 2px solid var(--scrollbar-track);
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.table-wrap::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+.wiki-table {
+  width: auto;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+}
+
+.wiki-table thead th {
+  min-width: 0;
+  background: var(--thead-bg);
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: middle;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--border);
+  overflow: hidden;
+}
+
+/* Numeric columns: plain right align (headers + cells use `th.num` / `td.num`). */
+.wiki-table thead th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  /* The rotated label uses `transform`, which doesn't affect layout.
+     So we allocate space via the `.num-label-wrap` inside the cell. */
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+/* Diagonal numeric header labels: keep horizontal column width stable. */
+.wiki-table thead th.num-diagonal .num-label-wrap {
+  display: block;
+  height: 4.15rem;
+  width: 100%;
+  overflow: visible;
+  padding: 0 0.1rem 0.1rem 0;
+  position: relative;
+}
+
+.wiki-table thead th.num-diagonal .num-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  white-space: nowrap;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  transform-origin: center;
+}
+
+.wiki-table thead th.num-diagonal.sortable .sort-hint {
+  /* Overlap allowed for diagonal label; keep the hint vertically centered. */
+  top: 50%;
+  transform: translateY(-50%);
+  /* Allow horizontal overlap with the diagonal label. */
+  right: 0.1rem;
+}
+
+.wiki-table thead th.num-diagonal.sortable {
+  /* Reclaim right padding so the sort hint can sit closer/overlap. */
+  padding: 0.15rem;
+}
+
+.wiki-table thead th.col-icon {
+  text-align: center;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.wiki-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+  padding-right: 1.4rem;
+}
+
+.wiki-table thead th.sortable:hover {
+  background: #252c42;
+}
+
+.wiki-table thead th.sortable .sort-hint {
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7rem;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.wiki-table thead th.sortable[aria-sort="ascending"] .sort-hint::after {
+  content: " ▲";
+}
+
+.wiki-table thead th.sortable[aria-sort="descending"] .sort-hint::after {
+  content: " ▼";
+}
+
+.wiki-table thead th.sortable[aria-sort="none"] .sort-hint::after {
+  content: " ◇";
+  opacity: 0.35;
+}
+
+.wiki-table tbody td {
+  min-width: 0;
+  padding: 0.25rem 0.25rem;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+/* Keep diagonal rotated labels un-clipped without affecting column width. */
+.wiki-table thead th.num-diagonal {
+  overflow: visible;
+}
+
+/* Striping by data row index (virtual scroll uses spacer rows). */
+.wiki-table tbody tr.v-row.is-stripe {
+  background: var(--stripe);
+}
+
+.wiki-table tbody tr.v-row {
+  min-height: var(--v-row-height);
+  height: auto;
+  box-sizing: border-box;
+}
+
+.wiki-table tbody tr.v-spacer td {
+  padding: 0 !important;
+  border: none !important;
+  line-height: 0;
+  vertical-align: top;
+}
+
+.wiki-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wiki-table td.col-icon {
+  width: 58px;
+  text-align: center;
+  vertical-align: middle;
+  /* Table cells can be inconsistent with flexbox centering across browsers. */
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+/* Robust horizontal centering for the icon placeholder/img. */
+.wiki-table td.col-icon > img.item-icon {
+  display: block;
+  margin: 0 auto;
+}
+
+.wiki-table td.col-icon > div.item-icon.missing {
+  display: inline-flex;
+  margin: 0 auto;
+}
+
+.wiki-table td.col-desc {
+  vertical-align: middle;
+}
+
+/* Full string in DOM; ellipsis only after line-clamp (not mid-word JS truncation). */
+.wiki-table td.col-desc .col-desc-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-size: 0.8rem;
+  color: #c5cce0;
+}
+
+.wiki-table td.col-name {
+  vertical-align: middle;
+}
+
+/* Line breaks prefer camelCase boundaries (U+200B inserted in app.js). */
+.wiki-table td.col-name code {
+  font-size: 0.78rem;
+  color: #aab6d4;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.wiki-table th.col-melee-dmg,
+.wiki-table td.col-melee-dmg {
+  font-size: 0.78rem;
+}
+
+.item-icon {
+  width: 48px;
+  height: 48px;
+  /* `* { box-sizing: border-box; }` would otherwise make the 1px border
+     eat into the image area and make the icon look smaller. */
+  box-sizing: content-box;
+  border-radius: 4px;
+  background: #0a0c12;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  transition: opacity 0.12s ease;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+/* Icons are exported upright by extract_itemlist.py (no CSS flip needed). */
+
+.item-icon.missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 2px;
+  word-break: break-word;
+  width: 48px;
+  height: 48px;
+}
+
+.json-open-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.json-open-btn:hover {
+  color: #9ec0ff;
+}
+
+.json-open-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.json-dialog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  max-width: min(52rem, 96vw);
+  width: calc(100% - 2rem);
+  max-height: min(88vh, 100%);
+}
+
+.json-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.json-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.json-dialog-close {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.json-dialog-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.json-dialog-pre {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  max-height: min(72vh, calc(100vh - 10rem));
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  background: #0a0c12;
+  border-radius: 0 0 7px 7px;
+  border: none;
+  tab-size: 2;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+.json-dialog-pre::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.json-dialog-pre::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 5px;
+}
+
+.json-dialog-pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+  border: 2px solid var(--scrollbar-track);
+}
+
+.json-dialog-pre::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.load-error {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  max-width: 48rem;
+}
+
+/* Craft recipe hover (icons with a recipe in recipesByProduct) */
+.item-icon--recipe {
+  cursor: help;
+  box-shadow: 0 0 0 1px rgba(107, 159, 255, 0.35);
+  border-radius: 4px;
+}
+
+.recipe-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(22rem, calc(100vw - 1rem));
+  padding: 0.55rem 0.65rem 0.65rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.recipe-tooltip[hidden] {
+  display: none !important;
+}
+
+.recipe-tooltip__head {
+  font-weight: 650;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.recipe-tooltip__title {
+  font-weight: 600;
+  margin: 0.25rem 0 0.25rem;
+  color: var(--text);
+}
+
+.recipe-tooltip__out {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.recipe-tooltip__hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.45rem 0;
+}
+
+.recipe-tooltip__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recipe-tooltip__row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0;
+}
+
+.recipe-tooltip__ing-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+/* Match table icons: flip + tint via .item-icon; size down for the tooltip row */
+.recipe-tooltip__ing-icon img.item-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.recipe-tooltip__ing-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipe-tooltip__ing-qty {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 600;
+}
