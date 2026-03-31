@@ -875,62 +875,52 @@
   }
 
   function readPersistedUI() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      const o = JSON.parse(raw);
-      return {
-        q: typeof o.q === "string" ? o.q : "",
-        objectType: typeof o.objectType === "string" ? o.objectType : "",
-        sortColumn: normalizeSortColumn(
-          o.sortColumn,
-          typeof o.objectType === "string" ? o.objectType : ""
-        ),
-        sortDir: o.sortDir === "desc" ? "desc" : "asc",
-        secondarySortMode: normalizeSecondarySortMode(o.secondarySortMode),
-        wisdomStat: normalizeWisdomStat(o.wisdomStat),
-        hideSpecialItems: o.hideSpecialItems === true,
-        showSpecialOnly: o.showSpecialOnly === true,
-        hideNormalTier: o.hideNormalTier === true,
-        hideQualityTier: o.hideQualityTier === true,
-        hideMastercraftTier: o.hideMastercraftTier === true,
-      };
-    } catch (e) {
-      return null;
-    }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return {
+      q: typeof o.q === "string" ? o.q : "",
+      objectType: typeof o.objectType === "string" ? o.objectType : "",
+      sortColumn: normalizeSortColumn(
+        o.sortColumn,
+        typeof o.objectType === "string" ? o.objectType : ""
+      ),
+      sortDir: o.sortDir === "desc" ? "desc" : "asc",
+      secondarySortMode: normalizeSecondarySortMode(o.secondarySortMode),
+      wisdomStat: normalizeWisdomStat(o.wisdomStat),
+      hideSpecialItems: o.hideSpecialItems === true,
+      showSpecialOnly: o.showSpecialOnly === true,
+      hideNormalTier: o.hideNormalTier === true,
+      hideQualityTier: o.hideQualityTier === true,
+      hideMastercraftTier: o.hideMastercraftTier === true,
+    };
   }
 
   function persistUI() {
-    try {
-      const qEl = document.getElementById("q");
-      const sel = document.getElementById("filter-object-type");
-      const hideSpecialEl = document.getElementById("hide-special-items");
-      const specialOnlyEl = document.getElementById("show-special-only");
-      const wisdomEl = document.getElementById("wisdom-stat");
-      const hideNormalTierEl = document.getElementById("hide-normal-tier");
-      const hideQualityTierEl = document.getElementById("hide-quality-tier");
-      const hideMastercraftTierEl = document.getElementById("hide-mastercraft-tier");
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          q: qEl ? qEl.value : "",
-          objectType: sel ? sel.value : "",
-          sortColumn: sortColumn,
-          sortDir: sortDir,
-          secondarySortMode: secondarySortMode,
-          wisdomStat: normalizeWisdomStat(wisdomEl && wisdomEl.value),
-          hideSpecialItems: !!(hideSpecialEl && hideSpecialEl.checked),
-          showSpecialOnly: !!(specialOnlyEl && specialOnlyEl.checked),
-          hideNormalTier: !!(hideNormalTierEl && hideNormalTierEl.checked),
-          hideQualityTier: !!(hideQualityTierEl && hideQualityTierEl.checked),
-          hideMastercraftTier: !!(
-            hideMastercraftTierEl && hideMastercraftTierEl.checked
-          ),
-        })
-      );
-    } catch (e) {
-      /* quota / private mode */
-    }
+    const qEl = document.getElementById("q");
+    const sel = document.getElementById("filter-object-type");
+    const hideSpecialEl = document.getElementById("hide-special-items");
+    const specialOnlyEl = document.getElementById("show-special-only");
+    const wisdomEl = document.getElementById("wisdom-stat");
+    const hideNormalTierEl = document.getElementById("hide-normal-tier");
+    const hideQualityTierEl = document.getElementById("hide-quality-tier");
+    const hideMastercraftTierEl = document.getElementById("hide-mastercraft-tier");
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        q: qEl ? qEl.value : "",
+        objectType: sel ? sel.value : "",
+        sortColumn: sortColumn,
+        sortDir: sortDir,
+        secondarySortMode: secondarySortMode,
+        wisdomStat: normalizeWisdomStat(wisdomEl && wisdomEl.value),
+        hideSpecialItems: !!(hideSpecialEl && hideSpecialEl.checked),
+        showSpecialOnly: !!(specialOnlyEl && specialOnlyEl.checked),
+        hideNormalTier: !!(hideNormalTierEl && hideNormalTierEl.checked),
+        hideQualityTier: !!(hideQualityTierEl && hideQualityTierEl.checked),
+        hideMastercraftTier: !!(hideMastercraftTierEl && hideMastercraftTierEl.checked),
+      })
+    );
   }
 
   /** Batched localStorage writes — render() can run often while typing. */
@@ -1144,12 +1134,8 @@
     c.height = h;
     const ctx = c.getContext("2d");
     if (!ctx) return null;
-    try {
-      ctx.drawImage(img, 0, 0);
-      return c.toDataURL("image/png");
-    } catch (e) {
-      return null;
-    }
+    ctx.drawImage(img, 0, 0);
+    return c.toDataURL("image/png");
   }
 
   /**
@@ -1748,17 +1734,9 @@
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    try {
-      ctx.drawImage(img, 0, 0);
-    } catch (e) {
-      return null;
-    }
     let imageData;
-    try {
-      imageData = ctx.getImageData(0, 0, w, h);
-    } catch (e) {
-      return null;
-    }
+    ctx.drawImage(img, 0, 0);
+    imageData = ctx.getImageData(0, 0, w, h);
     const d = imageData.data;
 
     function toHsl(r, g, b) {
@@ -1837,11 +1815,7 @@
       d[i + 2] = out.b;
     }
     ctx.putImageData(imageData, 0, 0);
-    try {
-      return canvas.toDataURL("image/png");
-    } catch (e) {
-      return null;
-    }
+    return canvas.toDataURL("image/png");
   }
 
   function applyEquipmentMaskTint(img, primaryRgb, secondaryRgb) {
@@ -1853,17 +1827,9 @@
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    try {
-      ctx.drawImage(img, 0, 0);
-    } catch (e) {
-      return null;
-    }
     let imageData;
-    try {
-      imageData = ctx.getImageData(0, 0, w, h);
-    } catch (e) {
-      return null;
-    }
+    ctx.drawImage(img, 0, 0);
+    imageData = ctx.getImageData(0, 0, w, h);
     const d = imageData.data;
     const pr = primaryRgb;
     const sr = secondaryRgb;
@@ -1886,11 +1852,7 @@
       d[i + 2] = mixByte(pr.b, sr.b, wRed, wGreen);
     }
     ctx.putImageData(imageData, 0, 0);
-    try {
-      return canvas.toDataURL("image/png");
-    } catch (e) {
-      return null;
-    }
+    return canvas.toDataURL("image/png");
   }
 
   /**
