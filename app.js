@@ -2188,9 +2188,10 @@
 
     cfg.syncPanel();
 
-    function closePanel() {
+    function closePanel(opts) {
       panel.hidden = true;
       btn.setAttribute("aria-expanded", "false");
+      if (opts && opts.focusButton) btn.focus();
     }
 
     function openPanel() {
@@ -2207,7 +2208,7 @@
       sel.value = value;
       cfg.syncPanel();
       const shouldClose = !(opts && opts.keepOpen);
-      if (shouldClose) closePanel();
+      if (shouldClose) closePanel({ focusButton: true });
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
@@ -2272,8 +2273,7 @@
         setFromDropdown(value != null ? value : "");
       } else if (e.key === "Escape") {
         e.preventDefault();
-        closePanel();
-        btn.focus();
+        closePanel({ focusButton: true });
       }
     });
 
