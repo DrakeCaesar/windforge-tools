@@ -27,7 +27,6 @@
   --link-hover: color-mix(in srgb, var(--accent) 65%, var(--text));
   --overlay-backdrop: color-mix(in srgb, var(--bg) 55%, transparent);
   --surface-hover: color-mix(in srgb, var(--text) 8%, transparent);
-  --recipe-icon-glow: color-mix(in srgb, var(--accent) 40%, transparent);
   --shadow-pop: color-mix(in srgb, var(--bg) 50%, transparent);
   --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
 }
@@ -973,8 +972,6 @@ main {
 /* Craft / “used in” hover (recipesByProduct and/or recipesByIngredient) */
 .item-icon--recipe {
   cursor: help;
-  box-shadow: 0 0 0 1px var(--recipe-icon-glow);
-  border-radius: 4px;
 }
 
 .recipe-tooltip {
