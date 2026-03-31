@@ -2320,80 +2320,76 @@
     });
   }
 
-  function getSortValue(item, colId) {
-    switch (colId) {
-      case "display":
-        return displayName(item).toLowerCase();
-      case "name":
-        return (item.name || "").toLowerCase();
-      case "objectType":
-        return (item.objectType || "").toLowerCase();
-      case "buy":
-        return prices(item).buy;
-      case "sell":
-        return prices(item).sell;
-      case "componentSell": {
-        const v = componentSellPrice(item);
-        return typeof v === "number" ? v : null;
-      }
-      case "profit": {
-        const sell = prices(item).sell;
-        const comp = componentSellPrice(item);
-        const v = sell != null && comp != null ? sell - comp : null;
-        return typeof v === "number" ? v : null;
-      }
-      case "description":
-        return description(item).toLowerCase();
-      case "dmgPhysical": {
-        const d = getMeleeDamageDesc(item);
-        return d && typeof d.physicalDamage === "number" ? d.physicalDamage : null;
-      }
-      case "meleeTimeBetweenAttacks": {
-        const m = getMeleeWeaponSetup(item);
-        return m && typeof m.timeBetweenAttacks === "number" ? m.timeBetweenAttacks : null;
-      }
-      case "meleeAttackRange": {
-        const m = getMeleeWeaponSetup(item);
-        return m && typeof m.attackRange === "number" ? m.attackRange : null;
-      }
-      case "dmgKnockback": {
-        const d = getMeleeDamageDesc(item);
-        return d && typeof d.knockbackMagnitude === "number" ? d.knockbackMagnitude : null;
-      }
-      default: {
-        const def = COLUMN_BY_ID[colId];
-        if (def && def.rtDamageKey) {
-          const d = getRangedOrThrowableDamageDesc(item);
-          const k = def.rtDamageKey;
-          return d && typeof d[k] === "number" ? d[k] : null;
-        }
-        if (def && isClothingStatColumnDef(def)) {
-          return getClothingStatSortValue(item, def);
-        }
-        if (def && def.placeBlockStatKey) {
-          return getPlaceBlockStatSortValue(item, def.placeBlockStatKey);
-        }
-        if (def && def.grapplingHookStatKey) {
-          return getGrapplingHookStatSortValue(item, def.grapplingHookStatKey);
-        }
-        if (def && def.placeableSetupStatKey) {
-          return getPlaceableSetupStatSortValue(item, def.placeableSetupStatKey);
-        }
-        if (def && isPropulsionPlaceItemStatColumnDef(def)) {
-          return getPropulsionPlaceItemStatSortValue(item, def);
-        }
-        if (def && isEnginePlaceItemStatColumnDef(def)) {
-          return getEnginePlaceItemStatSortValue(item, def);
-        }
-        if (def && isGrinderPlaceItemStatColumnDef(def)) {
-          return getGrinderPlaceItemStatSortValue(item, def);
-        }
-        if (def && isArtilleryShipItemStatColumnDef(def)) {
-          return getArtilleryShipItemStatSortValue(item, def);
-        }
-        return "";
-      }
+  function getStatValueFromColumnDef(item, def) {
+    if (def.rtDamageKey) return getRangedOrThrowableDamageDesc(item)[def.rtDamageKey];
+    if (isClothingStatColumnDef(def)) return getClothingStatSortValue(item, def);
+    if (def.placeBlockStatKey) return getPlaceBlockStatSortValue(item, def.placeBlockStatKey);
+    if (def.grapplingHookStatKey) return getGrapplingHookStatSortValue(item, def.grapplingHookStatKey);
+    if (def.placeableSetupStatKey) return getPlaceableSetupStatSortValue(item, def.placeableSetupStatKey);
+    if (isPropulsionPlaceItemStatColumnDef(def)) return getPropulsionPlaceItemStatSortValue(item, def);
+    if (isEnginePlaceItemStatColumnDef(def)) return getEnginePlaceItemStatSortValue(item, def);
+    if (isGrinderPlaceItemStatColumnDef(def)) return getGrinderPlaceItemStatSortValue(item, def);
+    if (isArtilleryShipItemStatColumnDef(def)) return getArtilleryShipItemStatSortValue(item, def);
+    return "";
+  }
+
+  function renderStatCellFromColumnDef(td, item, def) {
+    td.className = "num col-melee-dmg";
+    if (def.rtDamageKey) {
+      td.textContent = rtDamageNumberCell(item, def.rtDamageKey);
+      return;
     }
+    if (isClothingStatColumnDef(def)) {
+      td.textContent = clothingStatCell(item, def);
+      return;
+    }
+    if (def.placeBlockStatKey) {
+      td.textContent = placeBlockStatCell(item, def.placeBlockStatKey);
+      return;
+    }
+    if (def.grapplingHookStatKey) {
+      td.textContent = grapplingHookStatCell(item, def.grapplingHookStatKey);
+      return;
+    }
+    if (def.placeableSetupStatKey) {
+      td.textContent = placeableSetupStatCell(item, def.placeableSetupStatKey);
+      return;
+    }
+    if (isPropulsionPlaceItemStatColumnDef(def)) {
+      td.textContent = propulsionPlaceItemStatCell(item, def);
+      return;
+    }
+    if (isEnginePlaceItemStatColumnDef(def)) {
+      td.textContent = enginePlaceItemStatCell(item, def);
+      return;
+    }
+    if (isGrinderPlaceItemStatColumnDef(def)) {
+      td.textContent = grinderPlaceItemStatCell(item, def);
+      return;
+    }
+    if (isArtilleryShipItemStatColumnDef(def)) {
+      td.textContent = artilleryShipItemStatCell(item, def);
+      return;
+    }
+    td.className = "";
+    td.textContent = "—";
+  }
+
+  function getSortValue(item, colId) {
+    if (colId === "display") return displayName(item).toLowerCase();
+    if (colId === "name") return (item.name || "").toLowerCase();
+    if (colId === "objectType") return (item.objectType || "").toLowerCase();
+    if (colId === "buy") return prices(item).buy;
+    if (colId === "sell") return prices(item).sell;
+    if (colId === "componentSell") return componentSellPrice(item);
+    if (colId === "profit") return profitValue(item);
+    if (colId === "description") return description(item).toLowerCase();
+    if (colId === "dmgPhysical") return getMeleeDamageDesc(item).physicalDamage;
+    if (colId === "meleeTimeBetweenAttacks") return getMeleeWeaponSetup(item).timeBetweenAttacks;
+    if (colId === "meleeAttackRange") return getMeleeWeaponSetup(item).attackRange;
+    if (colId === "dmgKnockback") return getMeleeDamageDesc(item).knockbackMagnitude;
+    const def = COLUMN_BY_ID[colId];
+    return def ? getStatValueFromColumnDef(item, def) : "";
   }
 
   function compareItems(a, b) {
@@ -2632,36 +2628,8 @@
         }
         default: {
           const colDef = COLUMN_BY_ID[col.id];
-          if (colDef && colDef.rtDamageKey) {
-            td.className = "num col-melee-dmg";
-            td.textContent = rtDamageNumberCell(item, colDef.rtDamageKey);
-          } else if (colDef && isClothingStatColumnDef(colDef)) {
-            td.className = "num col-melee-dmg";
-            td.textContent = clothingStatCell(item, colDef);
-          } else if (colDef && colDef.placeBlockStatKey) {
-            td.className = "num col-melee-dmg";
-            td.textContent = placeBlockStatCell(item, colDef.placeBlockStatKey);
-          } else if (colDef && colDef.grapplingHookStatKey) {
-            td.className = "num col-melee-dmg";
-            td.textContent = grapplingHookStatCell(item, colDef.grapplingHookStatKey);
-          } else if (colDef && colDef.placeableSetupStatKey) {
-            td.className = "num col-melee-dmg";
-            td.textContent = placeableSetupStatCell(item, colDef.placeableSetupStatKey);
-          } else if (colDef && isPropulsionPlaceItemStatColumnDef(colDef)) {
-            td.className = "num col-melee-dmg";
-            td.textContent = propulsionPlaceItemStatCell(item, colDef);
-          } else if (colDef && isEnginePlaceItemStatColumnDef(colDef)) {
-            td.className = "num col-melee-dmg";
-            td.textContent = enginePlaceItemStatCell(item, colDef);
-          } else if (colDef && isGrinderPlaceItemStatColumnDef(colDef)) {
-            td.className = "num col-melee-dmg";
-            td.textContent = grinderPlaceItemStatCell(item, colDef);
-          } else if (colDef && isArtilleryShipItemStatColumnDef(colDef)) {
-            td.className = "num col-melee-dmg";
-            td.textContent = artilleryShipItemStatCell(item, colDef);
-          } else {
-            td.textContent = "—";
-          }
+          if (colDef) renderStatCellFromColumnDef(td, item, colDef);
+          else td.textContent = "—";
         }
       }
       tr.appendChild(td);
