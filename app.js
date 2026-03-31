@@ -26,16 +26,19 @@
   /** @type {'asc'|'desc'} */
   let sortDir = "asc";
 
-  /** Tie-break when primary sort column compares equal: full internal name vs suffix-grouped (reversed words). */
+  /** Tie-break when primary sort column compares equal: full internal name vs recipe-base grouping. */
   const SECONDARY_SORT_INTERNAL_NAME = "name";
-  const SECONDARY_SORT_NAME_SUFFIX_WORDS = "nameSuffixWords";
+  const SECONDARY_SORT_RECIPE_BASE = "recipeBase";
 
-  /** @type {typeof SECONDARY_SORT_INTERNAL_NAME | typeof SECONDARY_SORT_NAME_SUFFIX_WORDS} */
+  /** @type {typeof SECONDARY_SORT_INTERNAL_NAME | typeof SECONDARY_SORT_RECIPE_BASE} */
   let secondarySortMode = SECONDARY_SORT_INTERNAL_NAME;
   let wisdomStat = 0;
 
   function normalizeSecondarySortMode(v) {
-    if (v === SECONDARY_SORT_NAME_SUFFIX_WORDS) return SECONDARY_SORT_NAME_SUFFIX_WORDS;
+    // Migration: old "nameSuffixWords" mode now maps to recipe-base mode.
+    if (v === "nameSuffixWords" || v === SECONDARY_SORT_RECIPE_BASE) {
+      return SECONDARY_SORT_RECIPE_BASE;
+    }
     return SECONDARY_SORT_INTERNAL_NAME;
   }
 
@@ -1798,6 +1801,38 @@
     );
   }
 
+  function compareByRecipeBaseThenName(nameA, nameB) {
+    function recipeBaseForName(n) {
+      const recs = data.recipesByProduct && data.recipesByProduct[n];
+      if (Array.isArray(recs) && recs.length > 0) {
+        // If multiple recipe sets exist, use the lexicographically first stable key.
+        let best = "";
+        for (let i = 0; i < recs.length; i++) {
+          const b = String((recs[i] && recs[i].recipeSetBaseName) || "");
+          if (!b) continue;
+          if (!best || b.localeCompare(best, undefined, { sensitivity: "base", numeric: true }) < 0) {
+            best = b;
+          }
+        }
+        if (best) return best;
+      }
+      // Fallback for non-craft or missing recipe metadata.
+      return getCraftTierInfo(n).base || n || "";
+    }
+
+    const ba = recipeBaseForName(nameA);
+    const bb = recipeBaseForName(nameB);
+    const baseCmp = ba.localeCompare(bb, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+    if (baseCmp !== 0) return baseCmp;
+    return (nameA || "").localeCompare(nameB || "", undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+  }
+
   /** Display names are usually space-separated; single-token strings use camelCase split (e.g. fallback to internal name). */
   function wordsForDisplaySuffixSort(item) {
     const s = displayName(item);
@@ -2830,11 +2865,9 @@
       if (na !== nb) return (na - nb) * dir;
     } else {
       let c;
-      if (secondarySortMode === SECONDARY_SORT_NAME_SUFFIX_WORDS) {
+      if (secondarySortMode === SECONDARY_SORT_RECIPE_BASE) {
         if (col === "name") {
-          c = compareInternalNameSuffixWords(a.name || "", b.name || "");
-        } else if (col === "display") {
-          c = compareDisplayNameSuffixOrder(a, b);
+          c = compareByRecipeBaseThenName(a.name || "", b.name || "");
         } else {
           const sa = String(va ?? "");
           const sb = String(vb ?? "");
@@ -2849,11 +2882,10 @@
     }
 
     if (
-      secondarySortMode === SECONDARY_SORT_NAME_SUFFIX_WORDS &&
-      col !== "name" &&
-      col !== "display"
+      secondarySortMode === SECONDARY_SORT_RECIPE_BASE &&
+      col !== "name"
     ) {
-      return compareInternalNameSuffixWords(a.name || "", b.name || "");
+      return compareByRecipeBaseThenName(a.name || "", b.name || "");
     }
     return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true });
   }
