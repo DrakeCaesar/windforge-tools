@@ -945,7 +945,6 @@
   }
 
   function normalizeIconPath(luaPath) {
-    if (!luaPath || typeof luaPath !== "string") return "";
     let p = luaPath.replace(/\\/g, "/").trim();
     while (p.startsWith("../")) p = p.slice(3);
     return p.replace(/^\//, "");
@@ -954,16 +953,14 @@
   /** True when `inventoryIconFile` resolves to UnknownIcon.dds (not player-obtainable). */
   function itemUsesUnknownIcon(item) {
     const inv = item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return false;
     const raw = inv.inventoryIconFile;
-    if (!raw || typeof raw !== "string") return false;
     const base = normalizeIconPath(raw).split("/").pop();
     return base.toLowerCase() === "unknownicon.dds";
   }
 
   function itemNameContainsDebug(item) {
-    const n = item && item.name != null ? String(item.name).toLowerCase() : "";
-    const d = (displayName(item) || "").toLowerCase();
+    const n = String(item.name).toLowerCase();
+    const d = displayName(item).toLowerCase();
     const needles = ["debug", "test"];
     return needles.some(function (needle) {
       return n.includes(needle) || d.includes(needle);
@@ -972,28 +969,23 @@
 
   /** Paratrooper red torso clothing: icon Torso_Paratrooper.dds + (IconRed1/IconRed2). */
   function itemIsParatrooperRedClothing(item) {
-    const inv = item && item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return false;
+    const inv = item.inventorySetupInfo;
     const raw = inv.inventoryIconFile;
-    if (!raw || typeof raw !== "string") return false;
     const base = normalizeIconPath(raw).split("/").pop();
     if (base.toLowerCase() !== "torso_paratrooper.dds") return false;
     const a = inv.iconPrimaryColor;
     const b = inv.iconSecondaryColor;
-    if (typeof a !== "string" || typeof b !== "string") return false;
     return a.trim() === "IconRed1" && b.trim() === "IconRed2";
   }
 
   /** Exclude PunchGrey (White/GrayCloth) from special-items filtering. */
   function itemIsExcludedPunchGreyCombo(item) {
-    const inv = item && item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return false;
+    const inv = item.inventorySetupInfo;
     const raw = inv.inventoryIconFile;
-    if (!raw || typeof raw !== "string") return false;
     const base = normalizeIconPath(raw).split("/").pop();
     if (base.toLowerCase() !== "punchgrey.dds") return false;
-    const a = typeof inv.iconPrimaryColor === "string" ? inv.iconPrimaryColor.trim().toLowerCase() : "";
-    const b = typeof inv.iconSecondaryColor === "string" ? inv.iconSecondaryColor.trim().toLowerCase() : "";
+    const a = inv.iconPrimaryColor.trim().toLowerCase();
+    const b = inv.iconSecondaryColor.trim().toLowerCase();
     return a === "white" && b === "graycloth";
   }
 
@@ -1036,13 +1028,11 @@
   }
 
   function itemHasAnyRecipe(item) {
-    if (!item || typeof item.name !== "string") return false;
-    const rs = data.recipesByProduct && data.recipesByProduct[item.name];
+    const rs = data.recipesByProduct[item.name];
     return Array.isArray(rs) && rs.length > 0;
   }
 
   function itemHasDistinctThreeTierFamily(item) {
-    if (!item || typeof item.name !== "string") return false;
     const ti = getCraftTierInfo(item.name);
     const base = ti.base;
     if (!base) return false;
@@ -1070,11 +1060,9 @@
 
   function iconUrlFor(item) {
     const inv = item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return null;
     const raw = inv.inventoryIconFile;
-    if (!raw) return null;
     const norm = normalizeIconPath(raw);
-    const mapped = data.iconMap && data.iconMap[norm];
+    const mapped = data.iconMap[norm];
     if (mapped) return mapped;
     return "../../" + norm;
   }
@@ -1084,7 +1072,7 @@
     const raw = entry && entry.recipeSetIconTexture;
     if (!raw || typeof raw !== "string") return null;
     const norm = normalizeIconPath(raw);
-    const mapped = data.iconMap && data.iconMap[norm];
+    const mapped = data.iconMap[norm];
     if (mapped) return mapped;
     return "../../" + norm;
   }
@@ -1115,10 +1103,8 @@
 
   function displayName(item) {
     const inv = item.inventorySetupInfo;
-    if (inv && typeof inv.itemDisplayName === "string" && inv.itemDisplayName.trim()) {
-      return inv.itemDisplayName.trim();
-    }
-    return item.name || "";
+    const s = inv.itemDisplayName;
+    return s && s.trim() ? s.trim() : item.name;
   }
 
   /** @type {HTMLElement | null} */
@@ -1200,7 +1186,6 @@
   }
 
   function positionRecipeTooltip(clientX, clientY) {
-    if (!recipeTooltipEl) return;
     const pad = 14;
     const margin = 8;
     recipeTooltipEl.style.position = "fixed";
@@ -1208,7 +1193,7 @@
     recipeTooltipEl.style.top = clientY + pad + "px";
     recipeTooltipEl.style.zIndex = "10000";
     requestAnimationFrame(function () {
-      if (!recipeTooltipEl || recipeTooltipEl.hidden) return;
+      if (recipeTooltipEl.hidden) return;
       const r = recipeTooltipEl.getBoundingClientRect();
       let x = clientX + pad;
       let y = clientY + pad;
@@ -1242,9 +1227,8 @@
   }
 
   async function fillRecipeTooltip(item) {
-    if (!recipeTooltipEl) return;
-    const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
-    const usedIn = data.recipesByIngredient && data.recipesByIngredient[item.name];
+    const recipes = data.recipesByProduct[item.name];
+    const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
     if (!hasCraft && !hasUsed) return;
@@ -1379,12 +1363,11 @@
 
   function bindRecipeHover(targetEl, item) {
     if (!item || !item.name) return;
-    const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
-    const usedIn = data.recipesByIngredient && data.recipesByIngredient[item.name];
+    const recipes = data.recipesByProduct[item.name];
+    const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
     if (!hasCraft && !hasUsed) return;
-    if (!recipeTooltipEl) return;
 
     targetEl.classList.add("item-icon--recipe");
     targetEl.setAttribute(
@@ -1423,8 +1406,7 @@
 
   function description(item) {
     const inv = item.inventorySetupInfo;
-    if (inv && typeof inv.itemDescription === "string") return inv.itemDescription;
-    return "";
+    return inv.itemDescription;
   }
 
   /**
@@ -3195,10 +3177,7 @@
     ]);
 
     data = itemsPayload;
-    if (!data.ItemList) data.ItemList = [];
-    if (!data.iconMap) data.iconMap = {};
-    if (!data.recipesByProduct) data.recipesByProduct = {};
-    if (!data.recipesByIngredient) data.recipesByIngredient = {};
+    // Strict: required keys must exist in the payload.
 
     itemByName.clear();
     for (let i = 0; i < data.ItemList.length; i++) {
