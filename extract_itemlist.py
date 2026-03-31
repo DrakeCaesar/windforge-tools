@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 Extract ItemList from Data/objects/crafting/craftingitems.lua into itemlist.json
-next to this script, including PNG caches of unique inventory DDS icons under icons/.
+next to this script, including a packed PNG atlas (`icons/icons-atlas.png`) of unique inventory DDS icons (Pillow required; otherwise per-hash PNGs under `icons/`).
 
 Also extracts block stats from Data/objects/sharedblockinfo.lua into sharedblockinfo.json
 (hitPoints, mass, buoyancy, impactDamageMult per block type).
 
-Parses Data/objects/crafting/recipes.lua into recipesByProduct (crafting ingredients per
-output item internal name) for the catalog recipe hover panel.
+Parses Data/objects/crafting/recipes.lua into recipesByProduct (ingredients to craft an item)
+and recipesByIngredient (recipe sets that use an item as an ingredient, one row per set).
 
 Run from anywhere: python extract_itemlist.py
 """
@@ -20,7 +20,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 LuaValue = Union[None, bool, int, float, str, Dict[str, Any], List[Any]]
 
@@ -242,9 +242,10 @@ MASTER_CRAFT_PRODUCT_RE = re.compile(r'masterCraftProduct\s*=\s*"([^"]+)"')
 CRAFT_QUANTITY_RE = re.compile(r'craftQuantity\s*=\s*(\d+)')
 BASE_NAME_RE = re.compile(r'baseName\s*=\s*"([^"]+)"')
 DISPLAY_NAME_RE = re.compile(r'displayName\s*=\s*"([^"]+)"')
+ICON_TEXTURE_RE = re.compile(r'iconTextureName\s*=\s*"([^"]+)"')
 
 
-def extract_recipes(lua_path: Path) -> Dict[str, List[Dict[str, Any]]]:
+def extract_recipes(lua_path: Path) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]:
     """
     Parse recipes.lua: each line with Ingredients + normalProduct becomes one recipe entry.
 
@@ -252,12 +253,18 @@ def extract_recipes(lua_path: Path) -> Dict[str, List[Dict[str, Any]]]:
     weapons use e.g. Revolver / QualityRevolver / MasterCraftRevolver). The same recipe is
     registered under every distinct output internal name so the catalog can show craft info
     for all tiers.
+
+    Also builds recipesByIngredient: one row per recipe set (baseName) per ingredient, with
+    display name and icon texture — duplicate ingredient rows (e.g. seven propeller variants)
+    are collapsed.
     """
     text = lua_path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     current_base: str | None = None
     current_display: str | None = None
+    current_icon: str | None = None
     by_product: Dict[str, List[Dict[str, Any]]] = {}
+    by_ingredient: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     for line in lines:
         bm = BASE_NAME_RE.search(line)
@@ -266,6 +273,9 @@ def extract_recipes(lua_path: Path) -> Dict[str, List[Dict[str, Any]]]:
         dm = DISPLAY_NAME_RE.search(line)
         if dm:
             current_display = dm.group(1)
+        im = ICON_TEXTURE_RE.search(line)
+        if im:
+            current_icon = im.group(1)
         if "Ingredients" not in line or "normalProduct" not in line:
             continue
         ingredients_raw = [
@@ -291,7 +301,34 @@ def extract_recipes(lua_path: Path) -> Dict[str, List[Dict[str, Any]]]:
         }
         for product in output_names:
             by_product.setdefault(product, []).append(entry)
-    return by_product
+
+        bb = current_base or ""
+        if bb:
+            for ing in ingredients_raw:
+                inn = ing["ingredient"]
+                by_ingredient.setdefault(inn, {})
+                if bb in by_ingredient[inn]:
+                    continue
+                by_ingredient[inn][bb] = {
+                    "recipeSetBaseName": current_base,
+                    "recipeSetDisplayName": current_display,
+                    "recipeSetIconTexture": current_icon,
+                    # First recipe row in file order for this set: use its normal output for catalog tinting.
+                    "representativeProduct": normal,
+                }
+
+    by_ingredient_out: Dict[str, List[Dict[str, Any]]] = {}
+    for ing, bases in by_ingredient.items():
+        rows = sorted(
+            bases.values(),
+            key=lambda e: (
+                str(e.get("recipeSetDisplayName") or ""),
+                str(e.get("recipeSetBaseName") or ""),
+            ),
+        )
+        by_ingredient_out[ing] = rows
+
+    return by_product, by_ingredient_out
 
 
 def enrich_recipes_display_names(
@@ -409,10 +446,12 @@ def build_icon_map(
     game_root: Path,
     icons_out: Path,
     export_png: bool,
+    extra_normalized_paths: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     """
     Map normalized icon path -> URL path for the viewer (relative to viewer directory).
     If export_png, creates PNG files and maps to icons/xxx.png; else maps to ../../Data/...
+    extra_normalized_paths: e.g. recipe set icons from recipes.lua not used by any item icon.
     """
     unique: Dict[str, None] = {}
     for it in items:
@@ -422,6 +461,10 @@ def build_icon_map(
         p = inv.get("inventoryIconFile")
         if isinstance(p, str) and p.strip():
             unique[normalize_icon_path(p)] = None
+    if extra_normalized_paths:
+        for ep in extra_normalized_paths:
+            if isinstance(ep, str) and ep.strip():
+                unique[ep] = None
 
     icon_map: Dict[str, str] = {}
     for norm in unique:
@@ -441,6 +484,92 @@ def build_icon_map(
             icon_map[norm] = f"../../{norm}"
 
     return icon_map
+
+
+def pack_icon_atlas(
+    script_dir: Path,
+    icons_dir: Path,
+    icon_map: Dict[str, str],
+    atlas_filename: str = "icons-atlas.png",
+    max_width: int = 4096,
+) -> Optional[Tuple[Dict[str, str], Dict[str, Any]]]:
+    """
+    Pack icons/*.png into a single atlas; delete individual PNGs on success.
+    Returns (new_icon_map with values 'atlas:<norm>', iconAtlas payload) or None if packing fails.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    entries: List[Tuple[str, Path, int, int]] = []
+    for norm, rel in icon_map.items():
+        if not isinstance(rel, str) or not rel.startswith("icons/"):
+            continue
+        p = script_dir / rel
+        if not p.is_file():
+            continue
+        try:
+            with Image.open(p) as im0:
+                w, h = im0.size
+        except Exception:
+            continue
+        entries.append((norm, p, w, h))
+
+    if not entries:
+        return None
+
+    # Shelf packing (tallest in row first within each shelf).
+    entries.sort(key=lambda t: -t[3])
+    placements: Dict[str, Tuple[int, int, int, int]] = {}
+    x = 0
+    y = 0
+    row_h = 0
+    max_x = 0
+    for norm, _path, w, h in entries:
+        if x + w > max_width:
+            x = 0
+            y += row_h
+            row_h = 0
+        placements[norm] = (x, y, w, h)
+        max_x = max(max_x, x + w)
+        row_h = max(row_h, h)
+        x += w
+    atlas_w = max_x
+    atlas_h = y + row_h
+
+    atlas = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
+    sprites: Dict[str, Dict[str, int]] = {}
+    for norm, path, w, h in entries:
+        px, py, pw, ph = placements[norm]
+        assert (pw, ph) == (w, h)
+        im = Image.open(path).convert("RGBA")
+        atlas.paste(im, (px, py))
+        im.close()
+        sprites[norm] = {"x": px, "y": py, "w": pw, "h": ph}
+
+    atlas_path = icons_dir / atlas_filename
+    icons_dir.mkdir(parents=True, exist_ok=True)
+    atlas.save(atlas_path, optimize=True)
+
+    for _norm, path, _w, _h in entries:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+    new_icon_map: Dict[str, str] = {}
+    for norm, rel in icon_map.items():
+        if norm in sprites:
+            new_icon_map[norm] = f"atlas:{norm}"
+        else:
+            new_icon_map[norm] = rel
+
+    payload: Dict[str, Any] = {
+        "image": f"icons/{atlas_filename}",
+        "sprites": sprites,
+    }
+    return new_icon_map, payload
 
 
 def main() -> int:
@@ -469,21 +598,25 @@ def main() -> int:
     else:
         print(f"warning: shared block info not found: {shared_blocks}", file=sys.stderr)
 
-    icons_dir = script_dir / "icons"
-    print("Building PNG icon cache ...")
-    icon_map = build_icon_map(items, game_root, icons_dir, export_png=True)
-    print(f"Resolved {len(icon_map)} icons to PNG.")
-
     recipes_by_product: Dict[str, List[Dict[str, Any]]] = {}
+    recipes_by_ingredient: Dict[str, List[Dict[str, Any]]] = {}
     recipe_source_rel: str | None = None
+    recipe_icon_paths: List[str] = []
     if recipes_lua.is_file():
         print(f"Reading {recipes_lua} ...")
-        raw_recipes = extract_recipes(recipes_lua)
+        raw_recipes, recipes_by_ingredient = extract_recipes(recipes_lua)
         recipes_by_product = enrich_recipes_display_names(raw_recipes, items)
         total_entries = sum(len(v) for v in recipes_by_product.values())
+        for lst in recipes_by_ingredient.values():
+            for e in lst:
+                t = e.get("recipeSetIconTexture")
+                if isinstance(t, str) and t.strip():
+                    recipe_icon_paths.append(normalize_icon_path(t))
+        recipe_icon_paths = sorted(set(recipe_icon_paths))
         print(
             f"Parsed {len(recipes_by_product)} product keys, {total_entries} recipe list entries "
-            f"(each recipes.lua row may attach to normal, quality, and mastercraft outputs)."
+            f"(each recipes.lua row may attach to normal, quality, and mastercraft outputs); "
+            f"{len(recipes_by_ingredient)} ingredient keys for \"used in\" tooltips."
         )
         try:
             recipe_source_rel = str(recipes_lua.relative_to(game_root))
@@ -492,12 +625,30 @@ def main() -> int:
     else:
         print(f"warning: recipes file not found: {recipes_lua}", file=sys.stderr)
 
+    icons_dir = script_dir / "icons"
+    print("Building PNG icon cache ...")
+    icon_map = build_icon_map(
+        items, game_root, icons_dir, export_png=True, extra_normalized_paths=recipe_icon_paths
+    )
+    print(f"Resolved {len(icon_map)} icons to PNG.")
+
+    icon_atlas_payload: Optional[Dict[str, Any]] = None
+    packed = pack_icon_atlas(script_dir, icons_dir, icon_map)
+    if packed:
+        icon_map, icon_atlas_payload = packed
+        print(
+            f"Packed {len(icon_atlas_payload['sprites'])} sprites into {icon_atlas_payload['image']} "
+            "(individual PNGs removed)."
+        )
+    else:
+        print("Atlas pack skipped (Pillow missing or no icons); using per-file icons/ PNGs.")
+
     try:
         source_rel = str(crafting.relative_to(game_root))
     except ValueError:
         source_rel = str(crafting)
 
-    payload = {
+    payload: Dict[str, Any] = {
         "source": source_rel,
         "recipeSource": recipe_source_rel,
         "gameRootHint": str(game_root),
@@ -505,7 +656,10 @@ def main() -> int:
         "iconMap": icon_map,
         "ItemList": items,
         "recipesByProduct": recipes_by_product,
+        "recipesByIngredient": recipes_by_ingredient,
     }
+    if icon_atlas_payload is not None:
+        payload["iconAtlas"] = icon_atlas_payload
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:

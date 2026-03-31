@@ -443,6 +443,15 @@ body {
   align-self: center;
 }
 
+.icon-cache-status {
+  font-size: 13px;
+  color: var(--muted);
+  align-self: center;
+  margin-left: 12px;
+  max-width: 42ch;
+  line-height: 1.35;
+}
+
 main {
   flex: 1 1 auto;
   min-height: 0;
@@ -922,7 +931,7 @@ main {
   max-width: 768px;
 }
 
-/* Craft recipe hover (icons with a recipe in recipesByProduct) */
+/* Craft / “used in” hover (recipesByProduct and/or recipesByIngredient) */
 .item-icon--recipe {
   cursor: help;
   box-shadow: 0 0 0 1px var(--recipe-icon-glow);
@@ -1020,4 +1029,15 @@ main {
   font-variant-numeric: tabular-nums;
   color: var(--accent);
   font-weight: 600;
+}
+
+.recipe-tooltip__row--used-in .recipe-tooltip__ing-name {
+  font-weight: 500;
+}
+
+.recipe-tooltip__icon-img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }

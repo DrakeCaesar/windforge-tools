@@ -5,8 +5,8 @@
 (function () {
   "use strict";
 
-  /** @type {{ ItemList: object[], iconMap: Record<string,string>, itemCount?: number, source?: string, recipesByProduct?: Record<string, object[]>, recipeSource?: string }} */
-  let data = { ItemList: [], iconMap: {}, recipesByProduct: {} };
+  /** @type {{ ItemList: object[], iconMap: Record<string,string>, iconAtlas?: { image: string, sprites: Record<string, { x: number, y: number, w: number, h: number }> }, itemCount?: number, source?: string, recipesByProduct?: Record<string, object[]>, recipesByIngredient?: Record<string, object[]>, recipeSource?: string }} */
+  let data = { ItemList: [], iconMap: {}, recipesByProduct: {}, recipesByIngredient: {} };
 
   /** Internal item name → item row (for ingredient icons). */
   const itemByName = new Map();
@@ -753,6 +753,12 @@
    */
   const tintedIconDataUrlCache = new Map();
 
+  /** Non-tinted decoded PNGs as data URLs (tooltips use only data: src to avoid repeat fetches). */
+  const rawIconDataUrlCache = new Map();
+
+  /** One in-flight Image load per resolved PNG URL (table + tooltip share the same Promise). */
+  const imageLoadPromises = new Map();
+
   /** Estimated row height used before we measure individual rows. */
   let ROW_HEIGHT = 60;
   const VIRTUAL_OVERSCAN = 12;
@@ -1076,6 +1082,40 @@
     return "../../" + norm;
   }
 
+  /** Resolved PNG URL for a recipes.lua `iconTextureName` (recipe set icon). */
+  function recipeSetIconUrl(entry) {
+    const raw = entry && entry.recipeSetIconTexture;
+    if (!raw || typeof raw !== "string") return null;
+    const norm = normalizeIconPath(raw);
+    const mapped = data.iconMap && data.iconMap[norm];
+    if (mapped) return mapped;
+    return "../../" + norm;
+  }
+
+  /** PNG path (`icons/…`) or packed atlas sprite ref (`atlas:Data/…`). */
+  function isRasterIconRef(url) {
+    return Boolean(url && (/\.png$/i.test(url) || url.indexOf("atlas:") === 0));
+  }
+
+  function appendRecipeSetIconFallback(iconWrap, row) {
+    const url = recipeSetIconUrl(row);
+    if (isRasterIconRef(url)) {
+      const cached = rawIconDataUrlCache.get(url);
+      const im = document.createElement("img");
+      im.className = "recipe-tooltip__icon-img";
+      im.alt = "";
+      im.loading = "eager";
+      im.src = cached || url;
+      im.onerror = function () {
+        im.remove();
+        iconWrap.textContent = "—";
+      };
+      iconWrap.appendChild(im);
+    } else {
+      iconWrap.textContent = "—";
+    }
+  }
+
   function displayName(item) {
     const inv = item.inventorySetupInfo;
     if (inv && typeof inv.itemDisplayName === "string" && inv.itemDisplayName.trim()) {
@@ -1086,6 +1126,103 @@
 
   /** @type {HTMLElement | null} */
   let recipeTooltipEl = null;
+
+  function canvasToDataUrlFromImage(img) {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) return null;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    try {
+      ctx.drawImage(img, 0, 0);
+      return c.toDataURL("image/png");
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * @param {string} url same string as {@link iconUrlFor} returns, or `atlas:<norm>` for packed sprites
+   * @returns {Promise<HTMLImageElement>}
+   */
+  function loadImageForUrl(url) {
+    if (imageLoadPromises.has(url)) {
+      return imageLoadPromises.get(url);
+    }
+    if (url.indexOf("atlas:") === 0) {
+      const norm = url.slice(6);
+      const p = new Promise(function (resolve, reject) {
+        const atlas = data.iconAtlas;
+        if (!atlas || !atlas.image || !atlas.sprites) {
+          reject(new Error("no atlas"));
+          return;
+        }
+        const rect = atlas.sprites[norm];
+        if (!rect) {
+          reject(new Error("atlas sprite missing"));
+          return;
+        }
+        loadImageForUrl(atlas.image).then(
+          function (atlasImg) {
+            const c = document.createElement("canvas");
+            c.width = rect.w;
+            c.height = rect.h;
+            const ctx = c.getContext("2d");
+            if (!ctx) {
+              reject(new Error("canvas"));
+              return;
+            }
+            try {
+              ctx.drawImage(
+                atlasImg,
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                0,
+                0,
+                rect.w,
+                rect.h
+              );
+            } catch (e) {
+              reject(e);
+              return;
+            }
+            const img = new Image();
+            img.onload = function () {
+              resolve(img);
+            };
+            img.onerror = function () {
+              reject(new Error("sprite decode"));
+            };
+            img.src = c.toDataURL("image/png");
+          },
+          reject
+        );
+      });
+      p.catch(function () {
+        imageLoadPromises.delete(url);
+      });
+      imageLoadPromises.set(url, p);
+      return p;
+    }
+    const p = new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () {
+        resolve(img);
+      };
+      img.onerror = function () {
+        imageLoadPromises.delete(url);
+        reject(new Error("icon load"));
+      };
+      img.src = url;
+    });
+    imageLoadPromises.set(url, p);
+    return p;
+  }
 
   function positionRecipeTooltip(clientX, clientY) {
     if (!recipeTooltipEl) return;
@@ -1113,98 +1250,180 @@
     });
   }
 
-  function fillRecipeTooltip(item, recipes) {
-    if (!recipeTooltipEl) return;
-    recipeTooltipEl.innerHTML = "";
-    const head = document.createElement("div");
-    head.className = "recipe-tooltip__head";
-    head.textContent = "Craft: " + (displayName(item) || item.name || "");
-    recipeTooltipEl.appendChild(head);
+  function attachRecipeTooltipIcon(iconWrap, item, dataUrl) {
+    if (!dataUrl) {
+      iconWrap.textContent = "—";
+      return;
+    }
+    const im = document.createElement("img");
+    im.className = "item-icon";
+    if (item && getTintColorsForItem(item)) {
+      im.classList.add("item-icon--tinted");
+    }
+    im.alt = "";
+    im.loading = "eager";
+    im.src = dataUrl;
+    iconWrap.appendChild(im);
+  }
 
-    for (let i = 0; i < recipes.length; i++) {
-      const rec = recipes[i];
-      if (i > 0) {
+  async function fillRecipeTooltip(item) {
+    if (!recipeTooltipEl) return;
+    const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
+    const usedIn = data.recipesByIngredient && data.recipesByIngredient[item.name];
+    const hasCraft = recipes && recipes.length > 0;
+    const hasUsed = usedIn && usedIn.length > 0;
+    if (!hasCraft && !hasUsed) return;
+
+    recipeTooltipEl.innerHTML = "";
+
+    if (hasCraft) {
+      const head = document.createElement("div");
+      head.className = "recipe-tooltip__head";
+      head.textContent = "Craft: " + (displayName(item) || item.name || "");
+      recipeTooltipEl.appendChild(head);
+
+      for (let i = 0; i < recipes.length; i++) {
+        const rec = recipes[i];
+        if (i > 0) {
+          const hr = document.createElement("hr");
+          hr.className = "recipe-tooltip__hr";
+          recipeTooltipEl.appendChild(hr);
+        }
+        const title = document.createElement("div");
+        title.className = "recipe-tooltip__title";
+        title.appendChild(
+          document.createTextNode(
+            rec.recipeSetDisplayName || rec.recipeSetBaseName || "Recipe"
+          )
+        );
+        if (rec.craftQuantity != null && rec.craftQuantity !== 1) {
+          const out = document.createElement("span");
+          out.className = "recipe-tooltip__out";
+          out.textContent = " (outputs ×" + rec.craftQuantity + ")";
+          title.appendChild(out);
+        }
+        recipeTooltipEl.appendChild(title);
+
+        const ul = document.createElement("ul");
+        ul.className = "recipe-tooltip__list";
+        const ings = rec.ingredients || [];
+        const craftIconUrls = await Promise.all(
+          ings.map(function (ing) {
+            const sub = itemByName.get(ing.name);
+            return sub ? ensureIconDataUrlForItem(sub) : Promise.resolve(null);
+          })
+        );
+
+        for (let j = 0; j < ings.length; j++) {
+          const ing = ings[j];
+          const li = document.createElement("li");
+          li.className = "recipe-tooltip__row";
+
+          const iconWrap = document.createElement("div");
+          iconWrap.className = "recipe-tooltip__ing-icon";
+          const sub = itemByName.get(ing.name);
+          if (sub) {
+            const dataUrl = craftIconUrls[j];
+            attachRecipeTooltipIcon(iconWrap, sub, dataUrl);
+          } else {
+            iconWrap.textContent = "?";
+          }
+          li.appendChild(iconWrap);
+
+          const nameSpan = document.createElement("span");
+          nameSpan.className = "recipe-tooltip__ing-name";
+          nameSpan.textContent = ing.displayName || ing.name || "";
+          li.appendChild(nameSpan);
+
+          const qtySpan = document.createElement("span");
+          qtySpan.className = "recipe-tooltip__ing-qty";
+          qtySpan.textContent = "×" + (ing.quantity != null ? ing.quantity : "?");
+          li.appendChild(qtySpan);
+
+          ul.appendChild(li);
+        }
+        recipeTooltipEl.appendChild(ul);
+      }
+    }
+
+    if (hasUsed) {
+      if (hasCraft) {
         const hr = document.createElement("hr");
         hr.className = "recipe-tooltip__hr";
         recipeTooltipEl.appendChild(hr);
       }
-      const title = document.createElement("div");
-      title.className = "recipe-tooltip__title";
-      title.appendChild(
-        document.createTextNode(
-          rec.recipeSetDisplayName || rec.recipeSetBaseName || "Recipe"
-        )
-      );
-      if (rec.craftQuantity != null && rec.craftQuantity !== 1) {
-        const out = document.createElement("span");
-        out.className = "recipe-tooltip__out";
-        out.textContent = " (outputs ×" + rec.craftQuantity + ")";
-        title.appendChild(out);
-      }
-      recipeTooltipEl.appendChild(title);
+      const subHead = document.createElement("div");
+      subHead.className = "recipe-tooltip__head";
+      subHead.textContent = "Used in:";
+      recipeTooltipEl.appendChild(subHead);
 
-      const ul = document.createElement("ul");
-      ul.className = "recipe-tooltip__list";
-      const ings = rec.ingredients || [];
-      for (let j = 0; j < ings.length; j++) {
-        const ing = ings[j];
+      const ulUsed = document.createElement("ul");
+      ulUsed.className = "recipe-tooltip__list recipe-tooltip__list--used-in";
+
+      const usedIconUrls = await Promise.all(
+        usedIn.map(function (row) {
+          const repItem =
+            row.representativeProduct && itemByName.get(row.representativeProduct);
+          return repItem ? ensureIconDataUrlForItem(repItem) : Promise.resolve(null);
+        })
+      );
+
+      for (let u = 0; u < usedIn.length; u++) {
+        const row = usedIn[u];
         const li = document.createElement("li");
-        li.className = "recipe-tooltip__row";
+        li.className = "recipe-tooltip__row recipe-tooltip__row--used-in";
 
         const iconWrap = document.createElement("div");
         iconWrap.className = "recipe-tooltip__ing-icon";
-        const sub = itemByName.get(ing.name);
-        if (sub) {
-          const url = iconUrlFor(sub);
-          if (url && /\.png$/i.test(url)) {
-            const im = document.createElement("img");
-            im.loading = "eager";
-            wireCatalogItemIcon(im, sub, url, {
-              onLoadError() {
-                im.remove();
-                iconWrap.textContent = "—";
-              },
-            });
-            iconWrap.appendChild(im);
+        const repItem =
+          row.representativeProduct && itemByName.get(row.representativeProduct);
+        if (repItem) {
+          const dataUrl = usedIconUrls[u];
+          if (dataUrl) {
+            attachRecipeTooltipIcon(iconWrap, repItem, dataUrl);
           } else {
-            iconWrap.textContent = "—";
+            appendRecipeSetIconFallback(iconWrap, row);
           }
         } else {
-          iconWrap.textContent = "?";
+          appendRecipeSetIconFallback(iconWrap, row);
         }
         li.appendChild(iconWrap);
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "recipe-tooltip__ing-name";
-        nameSpan.textContent = ing.displayName || ing.name || "";
+        nameSpan.textContent = row.recipeSetDisplayName || row.recipeSetBaseName || "";
         li.appendChild(nameSpan);
 
-        const qtySpan = document.createElement("span");
-        qtySpan.className = "recipe-tooltip__ing-qty";
-        qtySpan.textContent = "×" + (ing.quantity != null ? ing.quantity : "?");
-        li.appendChild(qtySpan);
-
-        ul.appendChild(li);
+        ulUsed.appendChild(li);
       }
-      recipeTooltipEl.appendChild(ul);
+      recipeTooltipEl.appendChild(ulUsed);
     }
+
     recipeTooltipEl.hidden = false;
   }
 
   function bindRecipeHover(targetEl, item) {
     if (!item || !item.name) return;
     const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
-    if (!recipes || recipes.length === 0) return;
+    const usedIn = data.recipesByIngredient && data.recipesByIngredient[item.name];
+    const hasCraft = recipes && recipes.length > 0;
+    const hasUsed = usedIn && usedIn.length > 0;
+    if (!hasCraft && !hasUsed) return;
     if (!recipeTooltipEl) return;
 
     targetEl.classList.add("item-icon--recipe");
-    targetEl.setAttribute("aria-label", "Craft recipe — hover to show ingredients");
+    targetEl.setAttribute(
+      "aria-label",
+      "Craft / usage — hover to show recipe ingredients and where this item is used"
+    );
 
     targetEl.addEventListener(
       "mouseenter",
       function (e) {
-        fillRecipeTooltip(item, recipes);
-        positionRecipeTooltip(e.clientX, e.clientY);
+        void (async function () {
+          await fillRecipeTooltip(item);
+          positionRecipeTooltip(e.clientX, e.clientY);
+        })();
       },
       { passive: true }
     );
@@ -1502,6 +1721,43 @@
     return iconUrl + "\0" + names.primary + "\0" + names.secondary + "\0" + mode;
   }
 
+  /**
+   * Resolve catalog icon to a data URL using {@link tintedIconDataUrlCache}, {@link rawIconDataUrlCache},
+   * and shared {@link loadImageForUrl} (same decode as table rows).
+   * @returns {Promise<string|null>}
+   */
+  async function ensureIconDataUrlForItem(item) {
+    const url = iconUrlFor(item);
+    if (!url || !isRasterIconRef(url)) return null;
+    const tint = getTintColorsForItem(item);
+    const tk = tintCacheKey(url, item);
+    if (tk && tintedIconDataUrlCache.has(tk)) {
+      return tintedIconDataUrlCache.get(tk);
+    }
+    if (!tint && rawIconDataUrlCache.has(url)) {
+      return rawIconDataUrlCache.get(url);
+    }
+    try {
+      const loaded = await loadImageForUrl(url);
+      if (tint) {
+        const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+          ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+          : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
+        if (dataUrl && tk) {
+          tintedIconDataUrlCache.set(tk, dataUrl);
+        }
+        return dataUrl;
+      }
+      const raw = canvasToDataUrlFromImage(loaded);
+      if (raw) {
+        rawIconDataUrlCache.set(url, raw);
+      }
+      return raw;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /** Full-colour pickup: circular mean hue of palette colours, pixel saturation halved. */
   function applyHuePaletteRemap(img, primaryRgb, secondaryRgb) {
     const w = img.naturalWidth;
@@ -1677,6 +1933,10 @@
         img.style.opacity = "1";
         return;
       }
+    } else if (rawIconDataUrlCache.has(url)) {
+      img.src = rawIconDataUrlCache.get(url);
+      img.style.opacity = "1";
+      return;
     }
     // Avoid flash for regular icons during virtual-scroll rerenders.
     // Keep delayed reveal only for tint-generated icons.
@@ -1686,15 +1946,16 @@
         opts.onLoadError();
       }
     };
-    img.addEventListener(
-      "load",
-      function onIconDecoded() {
+    loadImageForUrl(url)
+      .then(function (loaded) {
         if (tint) {
           const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
-            ? applyHuePaletteRemap(img, tint.primary, tint.secondary)
-            : applyEquipmentMaskTint(img, tint.primary, tint.secondary);
+            ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+            : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
           if (dataUrl) {
-            if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
+            if (tk) {
+              tintedIconDataUrlCache.set(tk, dataUrl);
+            }
             img.classList.add("item-icon--tinted");
             img.src = dataUrl;
             function reveal() {
@@ -1708,11 +1969,82 @@
             return;
           }
         }
+        const raw = canvasToDataUrlFromImage(loaded);
+        if (raw) {
+          rawIconDataUrlCache.set(url, raw);
+        }
+        img.src = raw || url;
         img.style.opacity = "1";
-      },
-      { once: true }
-    );
-    img.src = url;
+      })
+      .catch(function () {
+        if (opts && typeof opts.onLoadError === "function") {
+          opts.onLoadError();
+        }
+      });
+  }
+
+  /** Decode every catalog + recipe-tooltip PNG once at startup; the table and tooltips use only memory caches. */
+  const ICON_PRELOAD_CONCURRENCY = 12;
+
+  function collectRecipeSetPngUrls() {
+    const set = new Set();
+    function scan(container) {
+      if (!container || typeof container !== "object") return;
+      const keys = Object.keys(container);
+      for (let k = 0; k < keys.length; k++) {
+        const arr = container[keys[k]];
+        if (!Array.isArray(arr)) continue;
+        for (let i = 0; i < arr.length; i++) {
+          const u = recipeSetIconUrl(arr[i]);
+          if (isRasterIconRef(u)) set.add(u);
+        }
+      }
+    }
+    scan(data.recipesByProduct);
+    scan(data.recipesByIngredient);
+    return Array.from(set);
+  }
+
+  async function preloadRawRecipeIconUrl(url) {
+    if (rawIconDataUrlCache.has(url)) return;
+    try {
+      const loaded = await loadImageForUrl(url);
+      const raw = canvasToDataUrlFromImage(loaded);
+      if (raw) rawIconDataUrlCache.set(url, raw);
+    } catch (e) {
+      /* Missing or undecodable */
+    }
+  }
+
+  async function preloadAllIcons() {
+    const items = data.ItemList;
+    for (let i = 0; i < items.length; i += ICON_PRELOAD_CONCURRENCY) {
+      const chunk = items.slice(i, i + ICON_PRELOAD_CONCURRENCY);
+      await Promise.all(
+        chunk.map(function (it) {
+          if (!it) return Promise.resolve();
+          return ensureIconDataUrlForItem(it);
+        })
+      );
+    }
+    const recipeUrls = collectRecipeSetPngUrls();
+    await Promise.all(recipeUrls.map(preloadRawRecipeIconUrl));
+  }
+
+  function updateIconCacheStatusEl(el) {
+    if (!el) return;
+    const nRaw = rawIconDataUrlCache.size;
+    const nTint = tintedIconDataUrlCache.size;
+    const atlasNote = data.iconAtlas ? " Source: one atlas file + in-memory slices." : "";
+    el.textContent =
+      "Icons: all cached in memory (" +
+      nRaw +
+      " PNG" +
+      (nRaw !== 1 ? "s" : "") +
+      ", " +
+      nTint +
+      " tinted). No repeat fetches." +
+      atlasNote;
   }
 
   function matchesQuery(item, q) {
@@ -2320,7 +2652,7 @@
 
   function appendIconToCell(td, item) {
     const url = iconUrlFor(item);
-    if (url && /\.png$/i.test(url)) {
+    if (isRasterIconRef(url)) {
       const img = document.createElement("img");
       img.loading = "lazy";
       const tk = tintCacheKey(url, item);
@@ -2969,6 +3301,7 @@
     if (!data.ItemList) data.ItemList = [];
     if (!data.iconMap) data.iconMap = {};
     if (!data.recipesByProduct) data.recipesByProduct = {};
+    if (!data.recipesByIngredient) data.recipesByIngredient = {};
 
     itemByName.clear();
     for (let i = 0; i < data.ItemList.length; i++) {
@@ -3030,6 +3363,15 @@
     if (hideMastercraftTierEl && persisted && persisted.hideMastercraftTier) {
       hideMastercraftTierEl.checked = true;
     }
+
+    const iconCacheStatusEl = document.getElementById("icon-cache-status");
+    if (iconCacheStatusEl) {
+      iconCacheStatusEl.hidden = false;
+      iconCacheStatusEl.textContent = "Caching icons…";
+    }
+    await preloadAllIcons();
+    updateIconCacheStatusEl(iconCacheStatusEl);
+
     render();
   }
 
