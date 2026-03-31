@@ -1215,7 +1215,10 @@
     recipeTooltipEl.hidden = true;
     recipeTooltipEl.innerHTML = "";
     recipeTooltipEl.scrollTop = 0;
+    recipeTooltipScrollArmed = false;
   }
+
+  let recipeTooltipScrollArmed = false;
 
   function attachRecipeTooltipIcon(iconWrap, item, dataUrl) {
     if (!dataUrl) {
@@ -1454,20 +1457,13 @@
     );
 
     targetEl.addEventListener(
-      "wheel",
+      "mousedown",
       function (e) {
+        if (e.button !== 0) return;
         if (recipeTooltipEl.hidden) return;
-        const dy = e.deltaY;
-        const maxScroll = recipeTooltipEl.scrollHeight - recipeTooltipEl.clientHeight;
-        if (maxScroll <= 0) return; // Tooltip fits: let wheel scroll the table.
-        const cur = recipeTooltipEl.scrollTop;
-        const next = Math.max(0, Math.min(maxScroll, cur + dy));
-        if (next === cur) return; // At tooltip boundary: let wheel continue to table.
-        recipeTooltipEl.scrollTop = next;
-        e.preventDefault();
-        e.stopPropagation();
+        recipeTooltipScrollArmed = true;
       },
-      { passive: false }
+      { passive: true }
     );
   }
 
@@ -1492,6 +1488,30 @@
         hideRecipeTooltip();
       },
       { passive: true }
+    );
+
+    document.addEventListener(
+      "wheel",
+      function (e) {
+        if (recipeTooltipEl.hidden) return;
+        if (!recipeTooltipScrollArmed) return;
+        const t = e.target;
+        if (
+          !t ||
+          typeof t.closest !== "function" ||
+          !t.closest("[data-recipe-hover-bound='1']")
+        ) {
+          return;
+        }
+        e.preventDefault();
+        const dy = e.deltaY;
+        const maxScroll = recipeTooltipEl.scrollHeight - recipeTooltipEl.clientHeight;
+        if (maxScroll <= 0) return;
+        const cur = recipeTooltipEl.scrollTop;
+        const next = Math.max(0, Math.min(maxScroll, cur + dy));
+        recipeTooltipEl.scrollTop = next;
+      },
+      { passive: false }
     );
   }
 
