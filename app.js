@@ -1843,7 +1843,6 @@
   function collectRecipeSetPngUrls() {
     const set = new Set();
     function scan(container) {
-      if (!container || typeof container !== "object") return;
       const keys = Object.keys(container);
       for (let k = 0; k < keys.length; k++) {
         const arr = container[keys[k]];
@@ -1978,7 +1977,6 @@
   function buildColgroup() {
     const cgHead = document.getElementById("colgroup-head");
     const cgBody = document.getElementById("colgroup-body");
-    if (!cgHead || !cgBody) return;
     const cols = visibleColumns();
     cgHead.innerHTML = "";
     cgBody.innerHTML = "";
@@ -2014,7 +2012,6 @@
    */
   function populateObjectTypeFilter(restored) {
     const sel = document.getElementById("filter-object-type");
-    if (!sel) return;
     const previous =
       restored && typeof restored.objectType === "string"
         ? restored.objectType
@@ -2098,7 +2095,6 @@
   function updateObjectTypeDropdownLabel() {
     const sel = document.getElementById("filter-object-type");
     const labelEl = document.getElementById("filter-object-type-label");
-    if (!sel || !labelEl) return;
     const opt = sel.options[sel.selectedIndex];
     labelEl.textContent = opt ? opt.textContent : "All object types";
   }
@@ -2106,7 +2102,6 @@
   function syncObjectTypeDropdownPanel() {
     const sel = document.getElementById("filter-object-type");
     const panel = document.getElementById("filter-object-type-panel");
-    if (!sel || !panel) return;
 
     panel.innerHTML = "";
     const current = sel.value;
@@ -2155,13 +2150,12 @@
   function closeObjectTypePanel() {
     const panel = document.getElementById("filter-object-type-panel");
     const btn = document.getElementById("filter-object-type-btn");
-    if (panel) panel.hidden = true;
-    if (btn) btn.setAttribute("aria-expanded", "false");
+    panel.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
   }
 
   function setObjectTypeFilterFromDropdown(value, opts) {
     const sel = document.getElementById("filter-object-type");
-    if (!sel) return;
     sel.value = value;
     syncObjectTypeDropdownPanel();
     const shouldClose = !(opts && opts.keepOpen);
@@ -2178,7 +2172,6 @@
     const panel = document.getElementById(cfg.panelId);
     const root = document.getElementById(cfg.rootId);
     const sel = document.getElementById(cfg.selectId);
-    if (!btn || !panel || !root || !sel) return;
 
     cfg.syncPanel();
 
@@ -2188,15 +2181,13 @@
     }
 
     function openPanel() {
-      if (cfg.closeOthers) cfg.closeOthers();
+      cfg.closeOthers();
       panel.hidden = false;
       btn.setAttribute("aria-expanded", "true");
       const selected = panel.querySelector(".object-type-dropdown__option--selected");
       const target = selected || panel.querySelector(".object-type-dropdown__option");
-      if (target) {
-        target.scrollIntoView({ block: "nearest" });
-        if (typeof target.focus === "function") target.focus();
-      }
+      target.scrollIntoView({ block: "nearest" });
+      target.focus();
     }
 
     function setFromDropdown(value, opts) {
@@ -2209,9 +2200,7 @@
 
     function stepSelect(delta, keepOpen) {
       const opts = Array.from(sel.options || []);
-      if (!opts.length) return;
       let idx = sel.selectedIndex;
-      if (idx < 0) idx = 0;
       const next = Math.max(0, Math.min(opts.length - 1, idx + delta));
       const v = opts[next] ? opts[next].value : "";
       setFromDropdown(v, keepOpen ? { keepOpen: true } : undefined);
@@ -2233,7 +2222,6 @@
 
     panel.addEventListener("click", function (e) {
       const opt = e.target.closest(".object-type-dropdown__option");
-      if (!opt) return;
       e.stopPropagation();
       const value = opt.getAttribute("data-value");
       setFromDropdown(value != null ? value : "");
@@ -2245,23 +2233,21 @@
         const delta = e.key === "ArrowDown" ? 1 : -1;
         stepSelect(delta, true);
         const selected = panel.querySelector(".object-type-dropdown__option--selected");
-        if (selected) {
-          selected.focus();
-          selected.scrollIntoView({ block: "nearest" });
-        }
+        selected.focus();
+        selected.scrollIntoView({ block: "nearest" });
       } else if (e.key === "Home") {
         e.preventDefault();
         const v = sel.options && sel.options[0] ? sel.options[0].value : "";
         setFromDropdown(v, { keepOpen: true });
         const selected = panel.querySelector(".object-type-dropdown__option--selected");
-        if (selected) selected.focus();
+        selected.focus();
       } else if (e.key === "End") {
         e.preventDefault();
         const lastIdx = sel.options ? sel.options.length - 1 : -1;
         const v = lastIdx >= 0 ? sel.options[lastIdx].value : "";
         setFromDropdown(v, { keepOpen: true });
         const selected = panel.querySelector(".object-type-dropdown__option--selected");
-        if (selected) selected.focus();
+        selected.focus();
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         const active = document.activeElement;
@@ -2269,10 +2255,8 @@
           active && active.classList && active.classList.contains("object-type-dropdown__option")
             ? active
             : null;
-        if (opt) {
-          const value = opt.getAttribute("data-value");
-          setFromDropdown(value != null ? value : "");
-        }
+        const value = opt.getAttribute("data-value");
+        setFromDropdown(value != null ? value : "");
       } else if (e.key === "Escape") {
         e.preventDefault();
         closePanel();
@@ -2281,13 +2265,12 @@
     });
 
     document.addEventListener("click", function (e) {
-      if (panel.hidden) return;
       if (root.contains(e.target)) return;
       closePanel();
     });
 
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !panel.hidden) {
+      if (e.key === "Escape") {
         closePanel();
       }
     });
@@ -2307,7 +2290,6 @@
   function updateSecondarySortDropdownLabel() {
     const sel = document.getElementById("secondary-sort");
     const labelEl = document.getElementById("secondary-sort-label");
-    if (!sel || !labelEl) return;
     const opt = sel.options[sel.selectedIndex];
     labelEl.textContent = opt ? opt.textContent : "";
   }
@@ -2315,7 +2297,6 @@
   function syncSecondarySortDropdownPanel() {
     const sel = document.getElementById("secondary-sort");
     const panel = document.getElementById("secondary-sort-panel");
-    if (!sel || !panel) return;
 
     panel.innerHTML = "";
     const current = sel.value;
@@ -2340,13 +2321,12 @@
   function closeSecondarySortPanel() {
     const panel = document.getElementById("secondary-sort-panel");
     const btn = document.getElementById("secondary-sort-btn");
-    if (panel) panel.hidden = true;
-    if (btn) btn.setAttribute("aria-expanded", "false");
+    panel.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
   }
 
   function setSecondarySortFromDropdown(value, opts) {
     const sel = document.getElementById("secondary-sort");
-    if (!sel) return;
     sel.value = value;
     syncSecondarySortDropdownPanel();
     const shouldClose = !(opts && opts.keepOpen);
@@ -2729,7 +2709,6 @@
   function renderVirtualBody() {
     const tbody = document.getElementById("tbody");
     const wrap = getBodyScrollPort();
-    if (!tbody || !wrap) return;
 
     if (!rowHeightSynced) {
       const cssV = parseFloat(
@@ -2859,7 +2838,6 @@
 
   function ensureVirtualScrollListeners() {
     const wrap = getBodyScrollPort();
-    if (!wrap) return;
     if (!virtualScrollAttached) {
       virtualScrollAttached = true;
       wrap.addEventListener("scroll", scheduleVirtualRefresh, { passive: true });
@@ -3047,7 +3025,6 @@
     const dlg = document.getElementById("json-dialog");
     const pre = document.getElementById("json-dialog-pre");
     const titleEl = document.getElementById("json-dialog-title");
-    if (!dlg || !pre) return;
     if (titleEl) {
       const n = item && item.name ? String(item.name) : "";
       titleEl.textContent = n ? "Raw data — " + n : "Raw item data";
@@ -3110,7 +3087,6 @@
   function initWisdomSpinButtons() {
     const input = document.getElementById("wisdom-stat");
     const wrap = input && input.closest(".number-input-spin");
-    if (!input || !wrap) return;
     const up = wrap.querySelector(".number-input-spin__btn--up");
     const down = wrap.querySelector(".number-input-spin__btn--down");
     function stepVal() {
