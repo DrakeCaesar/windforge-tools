@@ -756,6 +756,8 @@
   let prefixHeights = null; // Array<number> (length = virtualList.length + 1)
   let virtualHeightsDirty = true;
   let heightAutoRerenders = 0;
+  let virtualPadTop = 0;
+  let virtualPadBottom = 0;
 
   /** Filtered + sorted list for the current table; virtual scroll reads from this. */
   let virtualList = [];
@@ -1290,8 +1292,17 @@
       Number.isFinite(lastPointerClientY) && lastPointerClientY != null
         ? Math.max(0, Math.min(wrap.clientHeight - 1, lastPointerClientY - wrapRect.top))
         : Math.max(0, Math.floor(wrap.clientHeight * 0.5));
+
+    // Add temporary virtual overscroll so edge rows can still align to the anchor Y.
+    const desiredNoPad = rowTop + rowH * 0.5 - anchorY;
+    const maxNoPad = Math.max(0, (prefixHeights ? prefixHeights[virtualList.length] : 0) - wrap.clientHeight);
+    virtualPadTop = Math.max(0, -desiredNoPad);
+    virtualPadBottom = Math.max(0, desiredNoPad - maxNoPad);
+    renderVirtualBody();
+
+    const desiredWithPad = virtualPadTop + rowTop + rowH * 0.5 - anchorY;
     const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-    wrap.scrollTop = Math.max(0, Math.min(maxScroll, rowTop + rowH * 0.5 - anchorY));
+    wrap.scrollTop = Math.max(0, Math.min(maxScroll, desiredWithPad));
     renderVirtualBody();
     return true;
   }
@@ -3043,8 +3054,8 @@
 
     const viewportH = Math.max(1, wrap.clientHeight);
     const st = wrap.scrollTop;
-    const pxTop = Math.max(0, st);
-    const pxBottom = Math.max(pxTop, st + viewportH - 1);
+    const pxTop = Math.max(0, st - virtualPadTop);
+    const pxBottom = Math.max(pxTop, st + viewportH - 1 - virtualPadTop);
 
     function upperBound(arr, x) {
       // first index where arr[i] > x
@@ -3071,15 +3082,19 @@
     const frag = document.createDocumentFragment();
 
     if (startIdx > 0) {
-      frag.appendChild(spacerRow(prefixHeights[startIdx]));
+      frag.appendChild(spacerRow(virtualPadTop + prefixHeights[startIdx]));
+    } else if (virtualPadTop > 0) {
+      frag.appendChild(spacerRow(virtualPadTop));
     }
     for (let i = startIdx; i <= endIdx; i++) {
       frag.appendChild(renderRow(list[i], i));
     }
     if (endIdx < total - 1) {
       frag.appendChild(
-        spacerRow(prefixHeights[total] - prefixHeights[endIdx + 1])
+        spacerRow(prefixHeights[total] - prefixHeights[endIdx + 1] + virtualPadBottom)
       );
+    } else if (virtualPadBottom > 0) {
+      frag.appendChild(spacerRow(virtualPadBottom));
     }
     tbody.appendChild(frag);
     syncHeaderScrollbarGutter();
@@ -3128,6 +3143,34 @@
     const wrap = getBodyScrollPort();
     if (!virtualScrollAttached) {
       virtualScrollAttached = true;
+      wrap.addEventListener(
+        "wheel",
+        function (e) {
+          if (virtualPadTop <= 0 && virtualPadBottom <= 0) return;
+          let dy = e.deltaY;
+          if (e.deltaMode === 1) dy *= 16;
+          else if (e.deltaMode === 2) dy *= wrap.clientHeight;
+          if (dy === 0) return;
+          let remain = dy;
+          if (dy > 0 && virtualPadTop > 0) {
+            const used = Math.min(virtualPadTop, dy);
+            virtualPadTop -= used;
+            remain -= used;
+          } else if (dy < 0 && virtualPadBottom > 0) {
+            const used = Math.min(virtualPadBottom, -dy);
+            virtualPadBottom -= used;
+            remain += used;
+          }
+          if (virtualPadTop < 1) virtualPadTop = 0;
+          if (virtualPadBottom < 1) virtualPadBottom = 0;
+          if (remain !== dy) {
+            e.preventDefault();
+            wrap.scrollTop = Math.max(0, wrap.scrollTop + remain);
+            scheduleVirtualRefresh();
+          }
+        },
+        { passive: false }
+      );
       wrap.addEventListener("scroll", scheduleVirtualRefresh, { passive: true });
       wrap.addEventListener(
         "scroll",
@@ -3252,6 +3295,8 @@
     prefixHeights = null;
     virtualHeightsDirty = true;
     heightAutoRerenders = 0;
+    virtualPadTop = 0;
+    virtualPadBottom = 0;
     document.getElementById("count").textContent =
       list.length + " / " + data.ItemList.length + " items";
 
