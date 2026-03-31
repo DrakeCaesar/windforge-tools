@@ -5,6 +5,13 @@
 (function () {
   "use strict";
 
+  /** Throw asynchronously (so promise/image callbacks still crash loudly). */
+  function fatal(err) {
+    setTimeout(function () {
+      throw err instanceof Error ? err : new Error(String(err));
+    }, 0);
+  }
+
   /** @type {{ ItemList: object[], iconMap: Record<string,string>, iconAtlas?: { image: string, sprites: Record<string, { x: number, y: number, w: number, h: number }> }, itemCount?: number, source?: string, recipesByProduct?: Record<string, object[]>, recipesByIngredient?: Record<string, object[]>, recipeSource?: string }} */
   let data = { ItemList: [], iconMap: {}, recipesByProduct: {}, recipesByIngredient: {} };
 
@@ -428,7 +435,6 @@
   function placeBlockStatCell(item, key) {
     if (!item || item.objectType !== PLACE_BLOCK_ITEM_OBJECT_TYPE) return "";
     const row = getPlaceBlockStatsRow(item);
-    if (!row) return "—";
     const v = row[key];
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -457,7 +463,6 @@
   function grapplingHookStatCell(item, key) {
     if (!item || item.objectType !== GRAPPLING_HOOK_OBJECT_TYPE) return "";
     const g = getGrapplingHookSetup(item);
-    if (!g) return "—";
     const v = g[key];
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -640,21 +645,19 @@
   function clothingStatCell(item, colDef) {
     if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return "";
     const e = getClothingEquipSetup(item);
-    if (!e) return "—";
     if (colDef.clothingEquipField) {
       const v = e[colDef.clothingEquipField];
       return formatCatalogStatNumber(v, { hideZero: true });
     }
     if (colDef.clothingTraitKey) {
       const s = clothingTraitRawString(e, colDef.clothingTraitKey);
-      if (s == null || s === "") return "—";
       const n = parseFloat(s);
       if (!Number.isNaN(n)) {
         return formatCatalogStatNumber(n, { hideZero: true });
       }
       return s;
     }
-    return "—";
+    throw new Error("Bad clothing column def");
   }
 
   function getRangedOrThrowableDamageDesc(item) {
@@ -683,7 +686,6 @@
       return "";
     }
     const d = getRangedOrThrowableDamageDesc(item);
-    if (!d) return "—";
     const v = d[key];
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -1165,41 +1167,24 @@
       const norm = url.slice(6);
       const p = new Promise(function (resolve, reject) {
         const atlas = data.iconAtlas;
-        if (!atlas || !atlas.image || !atlas.sprites) {
-          reject(new Error("no atlas"));
-          return;
-        }
         const rect = atlas.sprites[norm];
-        if (!rect) {
-          reject(new Error("atlas sprite missing"));
-          return;
-        }
         loadImageForUrl(atlas.image).then(
           function (atlasImg) {
             const c = document.createElement("canvas");
             c.width = rect.w;
             c.height = rect.h;
             const ctx = c.getContext("2d");
-            if (!ctx) {
-              reject(new Error("canvas"));
-              return;
-            }
-            try {
-              ctx.drawImage(
-                atlasImg,
-                rect.x,
-                rect.y,
-                rect.w,
-                rect.h,
-                0,
-                0,
-                rect.w,
-                rect.h
-              );
-            } catch (e) {
-              reject(e);
-              return;
-            }
+            ctx.drawImage(
+              atlasImg,
+              rect.x,
+              rect.y,
+              rect.w,
+              rect.h,
+              0,
+              0,
+              rect.w,
+              rect.h
+            );
             // Return the sliced canvas directly.
             // This avoids creating/decoding a data: URL per sprite (which causes the gaps you’re seeing).
             resolve(c);
@@ -1220,7 +1205,7 @@
       };
       img.onerror = function () {
         imageLoadPromises.delete(url);
-        reject(new Error("icon load"));
+        reject(new Error("icon load: " + url));
       };
       img.src = url;
     });
@@ -1732,7 +1717,6 @@
    */
   async function ensureIconDataUrlForItem(item) {
     const url = iconUrlFor(item);
-    if (!url || !isRasterIconRef(url)) return null;
     const tint = getTintColorsForItem(item);
     const tk = tintCacheKey(url, item);
     if (tk && tintedIconDataUrlCache.has(tk)) {
@@ -1741,25 +1725,17 @@
     if (!tint && rawIconDataUrlCache.has(url)) {
       return rawIconDataUrlCache.get(url);
     }
-    try {
-      const loaded = await loadImageForUrl(url);
-      if (tint) {
-        const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
-          ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
-          : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
-        if (dataUrl && tk) {
-          tintedIconDataUrlCache.set(tk, dataUrl);
-        }
-        return dataUrl;
-      }
-      const raw = canvasToDataUrlFromImage(loaded);
-      if (raw) {
-        rawIconDataUrlCache.set(url, raw);
-      }
-      return raw;
-    } catch (e) {
-      return null;
+    const loaded = await loadImageForUrl(url);
+    if (tint) {
+      const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+        ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+        : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
+      if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
+      return dataUrl;
     }
+    const raw = canvasToDataUrlFromImage(loaded);
+    rawIconDataUrlCache.set(url, raw);
+    return raw;
   }
 
   /** Full-colour pickup: circular mean hue of palette colours, pixel saturation halved. */
@@ -1940,11 +1916,6 @@
       img.src = rawIconDataUrlCache.get(url);
       return;
     }
-    img.onerror = function () {
-      if (opts && typeof opts.onLoadError === "function") {
-        opts.onLoadError();
-      }
-    };
     loadImageForUrl(url)
       .then(function (loaded) {
         if (tint) {
@@ -1961,17 +1932,11 @@
           }
         }
         const raw = canvasToDataUrlFromImage(loaded);
-        if (raw) {
-          rawIconDataUrlCache.set(url, raw);
-          img.src = raw;
-        } else if (opts && typeof opts.onLoadError === "function") {
-          opts.onLoadError();
-        }
+        rawIconDataUrlCache.set(url, raw);
+        img.src = raw;
       })
       .catch(function () {
-        if (opts && typeof opts.onLoadError === "function") {
-          opts.onLoadError();
-        }
+        fatal(new Error("Icon decode failed for " + String(item && item.name) + ": " + String(url)));
       });
   }
 
@@ -1999,13 +1964,9 @@
 
   async function preloadRawRecipeIconUrl(url) {
     if (rawIconDataUrlCache.has(url)) return;
-    try {
-      const loaded = await loadImageForUrl(url);
-      const raw = canvasToDataUrlFromImage(loaded);
-      if (raw) rawIconDataUrlCache.set(url, raw);
-    } catch (e) {
-      /* Missing or undecodable */
-    }
+    const loaded = await loadImageForUrl(url);
+    const raw = canvasToDataUrlFromImage(loaded);
+    rawIconDataUrlCache.set(url, raw);
   }
 
   async function preloadAllIcons() {
@@ -2628,39 +2589,24 @@
 
   function appendIconToCell(td, item) {
     const url = iconUrlFor(item);
-    if (isRasterIconRef(url)) {
-      const img = document.createElement("img");
-      img.loading = "lazy";
-      const tk = tintCacheKey(url, item);
-      const hadTintCache = Boolean(tk && tintedIconDataUrlCache.get(tk));
-      wireCatalogItemIcon(img, item, url, {
-        onLoadError() {
-          const bad = missingIcon("Bad image");
-          img.replaceWith(bad);
-          bindRecipeHover(bad, item);
-        },
-      });
-      td.appendChild(img);
-      if (hadTintCache) {
-        bindRecipeHover(img, item);
-        return;
-      }
-    } else if (url && /\.dds$/i.test(url)) {
-      td.appendChild(missingIcon("DDS"));
-    } else {
-      td.appendChild(missingIcon("—"));
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    const tk = tintCacheKey(url, item);
+    const hadTintCache = Boolean(tk && tintedIconDataUrlCache.get(tk));
+    wireCatalogItemIcon(img, item, url, {
+      onLoadError() {
+        throw new Error("Icon decode failed for " + String(item && item.name) + ": " + String(url));
+      },
+    });
+    td.appendChild(img);
+    if (hadTintCache) {
+      bindRecipeHover(img, item);
+      return;
     }
     const iconNode = td.querySelector(".item-icon");
     if (iconNode) {
       bindRecipeHover(iconNode, item);
     }
-  }
-
-  function missingIcon(text) {
-    const d = document.createElement("div");
-    d.className = "item-icon missing";
-    d.textContent = text;
-    return d;
   }
 
   function escapeHtml(s) {
@@ -2690,7 +2636,7 @@
           appendIconToCell(td, item);
           break;
         case "display":
-          td.textContent = displayName(item) || "—";
+          td.textContent = displayName(item);
           break;
         case "name": {
           const code = document.createElement("code");
@@ -2701,7 +2647,7 @@
           break;
         }
         case "objectType":
-          td.textContent = item.objectType || "—";
+          td.textContent = item.objectType;
           break;
         case "buy": {
           const pr = prices(item);
@@ -3355,10 +3301,5 @@
     render();
   }
 
-  load().catch(function (e) {
-    document.getElementById("table-root").innerHTML =
-      '<div class="load-error"><p>Could not load <code>itemlist.json</code>. Run <code>python extract_itemlist.py</code> in this folder (writes <code>sharedblockinfo.json</code> and embeds <code>recipes.lua</code> craft data as <code>recipesByProduct</code>), then open via a local HTTP server from the game root.</p><pre>' +
-      escapeHtml(String(e)) +
-      "</pre></div>";
-  });
+  load();
 })();
