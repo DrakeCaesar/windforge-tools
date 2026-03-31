@@ -829,7 +829,6 @@
 
   function readPersistedUI() {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
     const o = JSON.parse(raw);
     return {
       q: typeof o.q === "string" ? o.q : "",
@@ -988,7 +987,6 @@
   function itemHasDistinctThreeTierFamily(item) {
     const ti = getCraftTierInfo(item.name);
     const base = ti.base;
-    if (!base) return false;
     const names = [base, "Quality" + base, "MasterCraft" + base];
     if (new Set(names).size !== 3) return false;
     return itemByName.has(names[0]) && itemByName.has(names[1]) && itemByName.has(names[2]);
@@ -1067,12 +1065,10 @@
     // Accept HTMLImageElement, HTMLCanvasElement, and other drawImage-compatible sources.
     const w = img && (img.naturalWidth || img.width);
     const h = img && (img.naturalHeight || img.height);
-    if (!w || !h) return null;
     const c = document.createElement("canvas");
     c.width = w;
     c.height = h;
     const ctx = c.getContext("2d");
-    if (!ctx) return null;
     ctx.drawImage(img, 0, 0);
     return c.toDataURL("image/png");
   }
@@ -1315,7 +1311,6 @@
   }
 
   function bindRecipeHover(targetEl, item) {
-    if (!item || !item.name) return;
     const recipes = data.recipesByProduct[item.name];
     const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
@@ -1444,39 +1439,32 @@
   }
 
   function getMeleeWeaponSetup(item) {
-    if (!item || !itemUsesMeleeWeaponSetupStats(item)) return null;
     const m = item.meleeWeaponSetupInfo;
-    return m && typeof m === "object" ? m : null;
+    return m;
   }
 
   function getMeleeDamageDesc(item) {
     const m = getMeleeWeaponSetup(item);
-    if (!m) return null;
     const d = m.damageDesc;
-    return d && typeof d === "object" ? d : null;
+    return d;
   }
 
   /** MeleeWeapon / JackHammer numeric damage fields: 0 renders as empty; others empty cell. */
   function meleeDamageNumberCell(item, key) {
-    if (!itemUsesMeleeWeaponSetupStats(item)) return "";
     const d = getMeleeDamageDesc(item);
-    if (!d) return "—";
     const v = d[key];
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
   /** Top-level `meleeWeaponSetupInfo` numeric fields (e.g. timeBetweenAttacks, attackRange). */
   function meleeSetupNumberCell(item, key) {
-    if (!itemUsesMeleeWeaponSetupStats(item)) return "";
     const m = getMeleeWeaponSetup(item);
-    if (!m) return "—";
     const v = m[key];
     return formatCatalogStatNumber(v, {});
   }
 
   function prices(item) {
     const inv = item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return { buy: null, sell: null };
     const buy = inv.buyPrice;
     const sell = inv.sellPrice;
     return {
@@ -1492,10 +1480,9 @@
    * Returns `null` when no complete recipe can be costed.
    */
   function componentSellPrice(item) {
-    if (!item || typeof item.name !== "string" || !item.name) return null;
     const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
-    if (!recipes || recipes.length === 0) return null;
-
+    if (!recipes) return null;
+    
     let best = null;
     for (let i = 0; i < recipes.length; i++) {
       const rec = recipes[i];
@@ -1577,13 +1564,10 @@
   /** `inventorySetupInfo.iconPrimaryColor` / `iconSecondaryColor` only (Icon* names in colours). */
   function getIconColorNames(item) {
     const inv = item.inventorySetupInfo;
-    if (!inv || typeof inv !== "object") return null;
     const ip = inv.iconPrimaryColor;
     const is = inv.iconSecondaryColor;
-    if (typeof ip !== "string" || typeof is !== "string") return null;
     const a = ip.trim();
     const b = is.trim();
-    if (!a || !b) return null;
     return { primary: a, secondary: b };
   }
 
@@ -1597,11 +1581,11 @@
   const HUE_PALETTE_REMAP = new Set(["AirBulb"]);
 
   function isFullColorPickup(item) {
-    if (item && typeof item.name === "string" && FULL_COLOR_ITEM_NAMES.has(item.name)) {
+    if (FULL_COLOR_ITEM_NAMES.has(item.name)) {
       return true;
     }
     const inv = item.inventorySetupInfo;
-    const t = inv && inv.pickupType;
+    const t = inv.pickupType;
     return (
       t === "FullColorPickupType" ||
       t === "GibPickupType" ||
@@ -1613,20 +1597,15 @@
   function getTintColorsForItem(item) {
     if (isFullColorPickup(item)) return null;
     const WC = globalThis.WindforgeColors;
-    if (!WC || typeof WC.lookupColorName !== "function") return null;
     const names = getIconColorNames(item);
-    if (!names) return null;
     const p = WC.lookupColorName(names.primary);
     const s = WC.lookupColorName(names.secondary);
-    if (!p || !s) return null;
     return { primary: p, secondary: s };
   }
 
   /** @returns {string|null} cache key if this item uses mask tinting; otherwise null */
   function tintCacheKey(iconUrl, item) {
-    if (!getTintColorsForItem(item)) return null;
     const names = getIconColorNames(item);
-    if (!names) return null;
     const mode = HUE_PALETTE_REMAP.has(item && item.name) ? "hueAvgHalfSat" : "mask";
     return iconUrl + "\0" + names.primary + "\0" + names.secondary + "\0" + mode;
   }
@@ -1663,12 +1642,10 @@
   function applyHuePaletteRemap(img, primaryRgb, secondaryRgb) {
     const w = img && (img.naturalWidth || img.width);
     const h = img && (img.naturalHeight || img.height);
-    if (!w || !h) return null;
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
     let imageData;
     ctx.drawImage(img, 0, 0);
     imageData = ctx.getImageData(0, 0, w, h);
@@ -1756,12 +1733,10 @@
   function applyEquipmentMaskTint(img, primaryRgb, secondaryRgb) {
     const w = img && (img.naturalWidth || img.width);
     const h = img && (img.naturalHeight || img.height);
-    if (!w || !h) return null;
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
     let imageData;
     ctx.drawImage(img, 0, 0);
     imageData = ctx.getImageData(0, 0, w, h);
@@ -2801,8 +2776,6 @@
       const stNow = wrap.scrollTop;
       const stillClose = Math.abs(stNow - scrollTopForRender) <= 1.5;
 
-      if (!rowHeights || rowHeights.length !== total) return;
-
       const rendered = tbody.querySelectorAll('tr.v-row[data-v-index]');
       let changed = false;
       for (let i = 0; i < rendered.length; i++) {
@@ -3055,9 +3028,7 @@
 
   document.getElementById("thead").addEventListener("click", function (e) {
     const th = e.target.closest("th[data-sort]");
-    if (!th) return;
     const id = th.dataset.sort;
-    if (!id || !COLUMN_BY_ID[id] || !COLUMN_BY_ID[id].sortable) return;
 
     if (id === sortColumn) {
       sortDir = sortDir === "asc" ? "desc" : "asc";
