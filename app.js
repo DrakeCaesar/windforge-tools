@@ -749,14 +749,19 @@
 
   /**
    * Tinted icon bitmaps as data URLs, keyed by source PNG + colour names.
-   * Unbounded (no eviction): every distinct mask+tint combo stays for the session.
+   * Infinite in-memory cache only: no cap, no eviction, no disk/sessionStorage — cleared on page unload.
    */
   const tintedIconDataUrlCache = new Map();
 
-  /** Non-tinted decoded PNGs as data URLs (tooltips use only data: src to avoid repeat fetches). */
+  /**
+   * Non-tinted sprites as data URLs (same key as {@link iconUrlFor} / atlas refs).
+   * Infinite in-memory cache only; UI never assigns file URLs to {@code <img>} once this is warm.
+   */
   const rawIconDataUrlCache = new Map();
 
-  /** One in-flight Image load per resolved PNG URL (table + tooltip share the same Promise). */
+  /**
+   * In-flight dedupe for the one-time network decode per URL (then pixels live in the Maps above).
+   */
   const imageLoadPromises = new Map();
 
   /** Estimated row height used before we measure individual rows. */
@@ -1101,15 +1106,15 @@
     const url = recipeSetIconUrl(row);
     if (isRasterIconRef(url)) {
       const cached = rawIconDataUrlCache.get(url);
+      if (!cached) {
+        iconWrap.textContent = "—";
+        return;
+      }
       const im = document.createElement("img");
       im.className = "recipe-tooltip__icon-img";
       im.alt = "";
       im.loading = "eager";
-      im.src = cached || url;
-      im.onerror = function () {
-        im.remove();
-        iconWrap.textContent = "—";
-      };
+      im.src = cached;
       iconWrap.appendChild(im);
     } else {
       iconWrap.textContent = "—";
@@ -1145,6 +1150,9 @@
   }
 
   /**
+   * One-time decode from network (or atlas file) into an {@link HTMLImageElement} for processing.
+   * Callers copy pixels into {@link rawIconDataUrlCache} / {@link tintedIconDataUrlCache}; displayed
+   * {@code <img>} uses only those data URLs, not this URL string.
    * @param {string} url same string as {@link iconUrlFor} returns, or `atlas:<norm>` for packed sprites
    * @returns {Promise<HTMLImageElement>}
    */
@@ -1930,17 +1938,12 @@
       if (cached) {
         img.classList.add("item-icon--tinted");
         img.src = cached;
-        img.style.opacity = "1";
         return;
       }
     } else if (rawIconDataUrlCache.has(url)) {
       img.src = rawIconDataUrlCache.get(url);
-      img.style.opacity = "1";
       return;
     }
-    // Avoid flash for regular icons during virtual-scroll rerenders.
-    // Keep delayed reveal only for tint-generated icons.
-    img.style.opacity = tint ? "0" : "1";
     img.onerror = function () {
       if (opts && typeof opts.onLoadError === "function") {
         opts.onLoadError();
@@ -1958,23 +1961,16 @@
             }
             img.classList.add("item-icon--tinted");
             img.src = dataUrl;
-            function reveal() {
-              img.style.opacity = "1";
-            }
-            if (typeof img.decode === "function") {
-              img.decode().then(reveal).catch(reveal);
-            } else {
-              img.addEventListener("load", reveal, { once: true });
-            }
             return;
           }
         }
         const raw = canvasToDataUrlFromImage(loaded);
         if (raw) {
           rawIconDataUrlCache.set(url, raw);
+          img.src = raw;
+        } else if (opts && typeof opts.onLoadError === "function") {
+          opts.onLoadError();
         }
-        img.src = raw || url;
-        img.style.opacity = "1";
       })
       .catch(function () {
         if (opts && typeof opts.onLoadError === "function") {
@@ -2029,22 +2025,6 @@
     }
     const recipeUrls = collectRecipeSetPngUrls();
     await Promise.all(recipeUrls.map(preloadRawRecipeIconUrl));
-  }
-
-  function updateIconCacheStatusEl(el) {
-    if (!el) return;
-    const nRaw = rawIconDataUrlCache.size;
-    const nTint = tintedIconDataUrlCache.size;
-    const atlasNote = data.iconAtlas ? " Source: one atlas file + in-memory slices." : "";
-    el.textContent =
-      "Icons: all cached in memory (" +
-      nRaw +
-      " PNG" +
-      (nRaw !== 1 ? "s" : "") +
-      ", " +
-      nTint +
-      " tinted). No repeat fetches." +
-      atlasNote;
   }
 
   function matchesQuery(item, q) {
@@ -3364,13 +3344,7 @@
       hideMastercraftTierEl.checked = true;
     }
 
-    const iconCacheStatusEl = document.getElementById("icon-cache-status");
-    if (iconCacheStatusEl) {
-      iconCacheStatusEl.hidden = false;
-      iconCacheStatusEl.textContent = "Caching icons…";
-    }
     await preloadAllIcons();
-    updateIconCacheStatusEl(iconCacheStatusEl);
 
     render();
   }

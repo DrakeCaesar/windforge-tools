@@ -443,15 +443,6 @@ body {
   align-self: center;
 }
 
-.icon-cache-status {
-  font-size: 13px;
-  color: var(--muted);
-  align-self: center;
-  margin-left: 12px;
-  max-width: 42ch;
-  line-height: 1.35;
-}
-
 main {
   flex: 1 1 auto;
   min-height: 0;
