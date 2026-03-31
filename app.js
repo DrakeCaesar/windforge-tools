@@ -1342,6 +1342,9 @@
     const hasUsed = usedIn && usedIn.length > 0;
     if (!hasCraft && !hasUsed) return;
 
+    if (targetEl && targetEl.dataset && targetEl.dataset.recipeHoverBound === "1") return;
+    if (targetEl && targetEl.dataset) targetEl.dataset.recipeHoverBound = "1";
+
     targetEl.classList.add("item-icon--recipe");
     targetEl.setAttribute(
       "aria-label",
@@ -2576,6 +2579,7 @@
         case "icon":
           td.className = "col-icon";
           appendIconToCell(td, item);
+          bindRecipeHover(td, item);
           break;
         case "display":
           td.textContent = displayName(item);
