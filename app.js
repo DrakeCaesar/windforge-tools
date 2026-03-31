@@ -764,6 +764,7 @@
 
   /** Filtered + sorted list for the current table; virtual scroll reads from this. */
   let virtualList = [];
+  let statColumnDecimalsById = Object.create(null);
   let virtualScrollRaf = null;
   let virtualScrollAttached = false;
   let virtualResizeAttached = false;
@@ -2125,14 +2126,33 @@
   }
 
   /**
-   * Non-price numeric cells: two decimal places. Buy/sell use {@link formatPriceWithSpaces} (integer).
-   * @param {{ hideZero?: boolean }} [opts] — if true, exact 0 renders as empty (existing catalog convention).
+   * Non-price numeric cells: round to 3 decimal places; optional fixed decimals can be provided per column.
+   * Buy/sell use {@link formatPriceWithSpaces} (integer).
+   * @param {{ hideZero?: boolean, decimals?: number }} [opts]
+   *   - hideZero: if true, exact 0 renders as empty (existing catalog convention).
+   *   - decimals: fixed display precision [0..3]; when omitted, trailing zeros are trimmed.
    */
   function formatCatalogStatNumber(v, opts) {
     const hideZero = opts && opts.hideZero;
     if (v == null || typeof v !== "number" || Number.isNaN(v)) return "—";
     if (hideZero && v === 0) return "";
-    return v.toFixed(2);
+    const rounded = Math.round(v * 1000) / 1000;
+    const fixedDecimals = opts && Number.isFinite(opts.decimals) ? opts.decimals : null;
+    if (fixedDecimals != null) {
+      const d = Math.max(0, Math.min(3, Math.trunc(fixedDecimals)));
+      return rounded.toFixed(d);
+    }
+    let s = rounded.toFixed(3);
+    s = s.replace(/(\.\d*?)0+$/, "$1");
+    if (s.endsWith(".")) s = s.slice(0, -1);
+    return s;
+  }
+
+  function getColumnStatDecimals(colId) {
+    if (Object.prototype.hasOwnProperty.call(statColumnDecimalsById, colId)) {
+      return statColumnDecimalsById[colId];
+    }
+    return 3;
   }
 
   /** `inventorySetupInfo.iconPrimaryColor` / `iconSecondaryColor` only (Icon* names in colours). */
@@ -2949,46 +2969,57 @@
     return "";
   }
 
+  function getCatalogStatDisplayNumber(item, colId) {
+    if (colId === "dmgPhysical") return getMeleeDamageDesc(item).physicalDamage;
+    if (colId === "meleeTimeBetweenAttacks") return getMeleeWeaponSetup(item).timeBetweenAttacks;
+    if (colId === "meleeAttackRange") return getMeleeWeaponSetup(item).attackRange;
+    if (colId === "dmgKnockback") return getMeleeDamageDesc(item).knockbackMagnitude;
+    const def = COLUMN_BY_ID[colId];
+    if (!def) return null;
+    const v = getStatValueFromColumnDef(item, def);
+    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+  }
+
+  function computeStatColumnDecimalsForList(list) {
+    const out = Object.create(null);
+    const cols = visibleColumns();
+    for (let c = 0; c < cols.length; c++) {
+      const colId = cols[c].id;
+      let hasStatValue = false;
+      let keepTenths = false;
+      let keepHundredths = false;
+      let keepThousandths = false;
+      for (let i = 0; i < list.length; i++) {
+        const v = getCatalogStatDisplayNumber(list[i], colId);
+        if (v == null || typeof v !== "number" || Number.isNaN(v)) continue;
+        hasStatValue = true;
+        const scaled = Math.round(Math.abs(v) * 1000);
+        if ((scaled % 10) !== 0) keepThousandths = true;
+        if ((Math.floor(scaled / 10) % 10) !== 0) keepHundredths = true;
+        if ((Math.floor(scaled / 100) % 10) !== 0) keepTenths = true;
+        if (keepThousandths) break;
+      }
+      if (!hasStatValue) continue;
+      out[colId] = keepThousandths ? 3 : keepHundredths ? 2 : keepTenths ? 1 : 0;
+    }
+    return out;
+  }
+
   function renderStatCellFromColumnDef(td, item, def) {
     td.className = "num col-melee-dmg";
-    if (def.rtDamageKey) {
-      td.textContent = rtDamageNumberCell(item, def.rtDamageKey);
+    const v = getStatValueFromColumnDef(item, def);
+    if (v == null) {
+      td.textContent = "—";
       return;
     }
-    if (isClothingStatColumnDef(def)) {
-      td.textContent = clothingStatCell(item, def);
+    if (typeof v === "number" && !Number.isNaN(v)) {
+      td.textContent = formatCatalogStatNumber(v, {
+        hideZero: true,
+        decimals: getColumnStatDecimals(def.id),
+      });
       return;
     }
-    if (def.placeBlockStatKey) {
-      td.textContent = placeBlockStatCell(item, def.placeBlockStatKey);
-      return;
-    }
-    if (def.grapplingHookStatKey) {
-      td.textContent = grapplingHookStatCell(item, def.grapplingHookStatKey);
-      return;
-    }
-    if (def.placeableSetupStatKey) {
-      td.textContent = placeableSetupStatCell(item, def.placeableSetupStatKey);
-      return;
-    }
-    if (isPropulsionPlaceItemStatColumnDef(def)) {
-      td.textContent = propulsionPlaceItemStatCell(item, def);
-      return;
-    }
-    if (isEnginePlaceItemStatColumnDef(def)) {
-      td.textContent = enginePlaceItemStatCell(item, def);
-      return;
-    }
-    if (isGrinderPlaceItemStatColumnDef(def)) {
-      td.textContent = grinderPlaceItemStatCell(item, def);
-      return;
-    }
-    if (isArtilleryShipItemStatColumnDef(def)) {
-      td.textContent = artilleryShipItemStatCell(item, def);
-      return;
-    }
-    td.className = "";
-    td.textContent = "—";
+    td.textContent = v === "" ? "" : String(v);
   }
 
   function getSortValue(item, colId) {
@@ -3216,22 +3247,34 @@
         }
         case "dmgPhysical": {
           td.className = "num col-melee-dmg";
-          td.textContent = meleeDamageNumberCell(item, "physicalDamage");
+          td.textContent = formatCatalogStatNumber(getMeleeDamageDesc(item).physicalDamage, {
+            hideZero: true,
+            decimals: getColumnStatDecimals("dmgPhysical"),
+          });
           break;
         }
         case "meleeTimeBetweenAttacks": {
           td.className = "num col-melee-dmg";
-          td.textContent = meleeSetupNumberCell(item, "timeBetweenAttacks");
+          td.textContent = formatCatalogStatNumber(getMeleeWeaponSetup(item).timeBetweenAttacks, {
+            hideZero: false,
+            decimals: getColumnStatDecimals("meleeTimeBetweenAttacks"),
+          });
           break;
         }
         case "meleeAttackRange": {
           td.className = "num col-melee-dmg";
-          td.textContent = meleeSetupNumberCell(item, "attackRange");
+          td.textContent = formatCatalogStatNumber(getMeleeWeaponSetup(item).attackRange, {
+            hideZero: false,
+            decimals: getColumnStatDecimals("meleeAttackRange"),
+          });
           break;
         }
         case "dmgKnockback": {
           td.className = "num col-melee-dmg";
-          td.textContent = meleeDamageNumberCell(item, "knockbackMagnitude");
+          td.textContent = formatCatalogStatNumber(getMeleeDamageDesc(item).knockbackMagnitude, {
+            hideZero: true,
+            decimals: getColumnStatDecimals("dmgKnockback"),
+          });
           break;
         }
         case "json": {
@@ -3612,6 +3655,7 @@
     const t3 = profile ? performance.now() : 0;
 
     virtualList = list;
+    statColumnDecimalsById = computeStatColumnDecimalsForList(list);
     rowHeights = null;
     prefixHeights = null;
     virtualHeightsDirty = true;
