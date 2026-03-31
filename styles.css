@@ -993,6 +993,10 @@ main {
   scrollbar-width: thin;
 }
 
+.recipe-tooltip.recipe-tooltip--pinned {
+  pointer-events: auto;
+}
+
 .recipe-tooltip::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1067,6 +1071,10 @@ main {
   border-radius: 4px;
   font-size: 10px;
   color: var(--muted);
+}
+
+.recipe-tooltip__ing-icon[data-item-name] {
+  cursor: pointer;
 }
 
 /* Match table icons: flip + tint via .item-icon; size down for the tooltip row */
