@@ -466,7 +466,9 @@ main {
   max-width: none;
   align-self: center;
   margin: 0 auto;
+  position: relative;
   overflow: hidden;
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--panel);
 }
@@ -503,6 +505,26 @@ main {
 
 .table-head-wrap {
   flex: 0 0 auto;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.wiki-table thead th.col-json {
+  position: relative;
+  overflow: visible;
+}
+
+.wiki-table thead th.col-json::after {
+  /* Extend the last header cell into the body scrollbar gutter. */
+  content: "";
+  position: absolute;
+  top: 0;
+  right: calc(-1 * var(--table-scrollbar-gutter, 0px));
+  width: var(--table-scrollbar-gutter, 0px);
+  height: calc(100% + 1px);
+  background: var(--thead-bg);
+  box-shadow: inset 0 -1px 0 var(--border);
+  pointer-events: none;
 }
 
 .table-body-scroll {
@@ -511,7 +533,8 @@ main {
   max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  /* Do not reserve a permanent gutter column; show scrollbar space only when needed. */
+  scrollbar-gutter: auto;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
@@ -565,6 +588,19 @@ main {
   white-space: nowrap;
   vertical-align: middle;
   overflow: hidden;
+}
+
+/* Outer perimeter border is owned by `.table-wrap`. */
+.wiki-table.wiki-table-head thead th {
+  border-top: none;
+}
+
+.wiki-table.wiki-table-head thead th:first-child {
+  border-left: none;
+}
+
+.wiki-table.wiki-table-head thead th.col-json {
+  border-right: none;
 }
 
 /* Numeric columns: plain right align (headers + cells use `th.num` / `td.num`). */
@@ -720,6 +756,18 @@ main {
    Do not use `tr.v-row:first-of-type` — a top spacer row would break the border before the first data row. */
 .wiki-table-body tbody > tr:first-child:not(.v-spacer) td {
   border-top: none;
+}
+
+.wiki-table-body tbody td:first-child {
+  border-left: none;
+}
+
+.wiki-table-body tbody td:last-child {
+  border-right: none;
+}
+
+.wiki-table-body tbody > tr:last-child:not(.v-spacer) td {
+  border-bottom: none;
 }
 
 .wiki-table td.num {

@@ -697,7 +697,7 @@
     paMaxProjSpeed: COL_PX_STAT,
     paPhysDmg: COL_PX_STAT,
     paKnockback: COL_PX_STAT,
-    json: 48,
+    json: 64,
   };
 
   const STORAGE_KEY = "windforge-item-catalog-ui-v1";
@@ -2010,6 +2010,15 @@
     return document.getElementById("table-body-scroll");
   }
 
+  function syncHeaderScrollbarGutter() {
+    const wrap = getBodyScrollPort();
+    const headWrap = document.querySelector(".table-head-wrap");
+    if (!wrap || !headWrap) return;
+    const sbw = Math.max(0, wrap.offsetWidth - wrap.clientWidth);
+    const hasY = wrap.scrollHeight > wrap.clientHeight + 1;
+    headWrap.style.setProperty("--table-scrollbar-gutter", (hasY ? sbw : 0) + "px");
+  }
+
   /**
    * @param {{ objectType?: string } | null} [restored] — from localStorage; preferred value for &lt;select&gt; after rebuild
    */
@@ -2710,6 +2719,7 @@
       td.style.padding = "1.25rem";
       tr.appendChild(td);
       tbody.appendChild(tr);
+      syncHeaderScrollbarGutter();
       return;
     }
 
@@ -2773,6 +2783,7 @@
       );
     }
     tbody.appendChild(frag);
+    syncHeaderScrollbarGutter();
 
     const scrollTopForRender = st;
     requestAnimationFrame(function () {
@@ -2801,6 +2812,7 @@
           renderVirtualBody();
         }
       }
+      syncHeaderScrollbarGutter();
     });
   }
 
