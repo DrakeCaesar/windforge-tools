@@ -1212,6 +1212,7 @@
   }
 
   function hideRecipeTooltip() {
+    recipeTooltipShowToken++;
     recipeTooltipEl.hidden = true;
     recipeTooltipEl.innerHTML = "";
     recipeTooltipEl.scrollTop = 0;
@@ -1219,6 +1220,28 @@
   }
 
   let recipeTooltipScrollArmed = false;
+  let recipeTooltipShowToken = 0;
+  let lastPointerClientX = null;
+  let lastPointerClientY = null;
+  const recipeHoverItemByTarget = new WeakMap();
+
+  function getRecipeHoverTargetAtPoint(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const el = document.elementFromPoint(x, y);
+    if (!el || typeof el.closest !== "function") return null;
+    return el.closest("[data-recipe-hover-bound='1']");
+  }
+
+  function showRecipeTooltipAtPointer(targetEl, clientX, clientY) {
+    const item = recipeHoverItemByTarget.get(targetEl);
+    if (!item) return;
+    const token = ++recipeTooltipShowToken;
+    void (async function () {
+      await fillRecipeTooltip(item);
+      if (token !== recipeTooltipShowToken) return;
+      positionRecipeTooltip(clientX, clientY);
+    })();
+  }
 
   function attachRecipeTooltipIcon(iconWrap, item, dataUrl) {
     if (!dataUrl) {
@@ -1422,6 +1445,7 @@
 
     if (targetEl && targetEl.dataset && targetEl.dataset.recipeHoverBound === "1") return;
     if (targetEl && targetEl.dataset) targetEl.dataset.recipeHoverBound = "1";
+    recipeHoverItemByTarget.set(targetEl, item);
 
     targetEl.classList.add("item-icon--recipe");
     targetEl.setAttribute(
@@ -1432,16 +1456,17 @@
     targetEl.addEventListener(
       "mouseenter",
       function (e) {
-        void (async function () {
-          await fillRecipeTooltip(item);
-          positionRecipeTooltip(e.clientX, e.clientY);
-        })();
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
+        showRecipeTooltipAtPointer(targetEl, e.clientX, e.clientY);
       },
       { passive: true }
     );
     targetEl.addEventListener(
       "mousemove",
       function (e) {
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
         if (!recipeTooltipEl.hidden) {
           positionRecipeTooltip(e.clientX, e.clientY);
         }
@@ -1476,6 +1501,8 @@
     document.addEventListener(
       "mousemove",
       function (e) {
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
         if (recipeTooltipEl.hidden) return;
         const t = e.target;
         if (
@@ -2968,7 +2995,12 @@
       wrap.addEventListener(
         "scroll",
         function () {
-          if (!recipeTooltipEl.hidden) hideRecipeTooltip();
+          const target = getRecipeHoverTargetAtPoint(lastPointerClientX, lastPointerClientY);
+          if (!target) {
+            if (!recipeTooltipEl.hidden) hideRecipeTooltip();
+            return;
+          }
+          showRecipeTooltipAtPointer(target, lastPointerClientX, lastPointerClientY);
         },
         { passive: true }
       );
