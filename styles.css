@@ -978,6 +978,8 @@ main {
   position: fixed;
   z-index: 10000;
   max-width: min(352px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
   padding: 9px 10px 10px;
   background: var(--panel);
   border: 1px solid var(--border);

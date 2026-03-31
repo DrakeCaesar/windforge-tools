@@ -1183,15 +1183,21 @@
   function positionRecipeTooltip(clientX, clientY) {
     const pad = 14;
     const margin = 8;
+    const minH = 160;
+    const below = window.innerHeight - margin - (clientY + pad);
+    const above = clientY - margin - pad;
+    const placeBelow = below >= minH || below >= above;
+    const maxH = Math.max(minH, placeBelow ? below : above);
+    recipeTooltipEl.style.maxHeight = Math.floor(maxH) + "px";
     recipeTooltipEl.style.position = "fixed";
     recipeTooltipEl.style.left = clientX + pad + "px";
-    recipeTooltipEl.style.top = clientY + pad + "px";
+    recipeTooltipEl.style.top = (placeBelow ? clientY + pad : clientY - pad) + "px";
     recipeTooltipEl.style.zIndex = "10000";
     requestAnimationFrame(function () {
       if (recipeTooltipEl.hidden) return;
       const r = recipeTooltipEl.getBoundingClientRect();
       let x = clientX + pad;
-      let y = clientY + pad;
+      let y = placeBelow ? clientY + pad : clientY - pad - r.height;
       if (x + r.width > window.innerWidth - margin) {
         x = Math.max(margin, window.innerWidth - r.width - margin);
       }
@@ -1229,6 +1235,7 @@
     if (!hasCraft && !hasUsed) return;
 
     recipeTooltipEl.innerHTML = "";
+    recipeTooltipEl.scrollTop = 0;
 
     if (hasCraft) {
       const head = document.createElement("div");
@@ -1313,6 +1320,36 @@
 
       const ulUsed = document.createElement("ul");
       ulUsed.className = "recipe-tooltip__list recipe-tooltip__list--used-in";
+      const usedInProductsBySetCache = new Map();
+
+      function productsInSetUsingIngredient(baseName, ingredientName) {
+        const key = String(baseName || "") + "::" + String(ingredientName || "");
+        if (usedInProductsBySetCache.has(key)) {
+          return usedInProductsBySetCache.get(key);
+        }
+        const out = [];
+        const byProduct = data.recipesByProduct || {};
+        const productNames = Object.keys(byProduct);
+        for (let p = 0; p < productNames.length; p++) {
+          const prodName = productNames[p];
+          const recs = byProduct[prodName];
+          if (!Array.isArray(recs)) continue;
+          for (let r = 0; r < recs.length; r++) {
+            const rec = recs[r];
+            if (!rec || rec.recipeSetBaseName !== baseName) continue;
+            const ings = rec.ingredients || [];
+            for (let i = 0; i < ings.length; i++) {
+              const ingName = ings[i] && (ings[i].name || ings[i].ingredient);
+              if (ingName === ingredientName) {
+                if (!out.includes(prodName)) out.push(prodName);
+                break;
+              }
+            }
+          }
+        }
+        usedInProductsBySetCache.set(key, out);
+        return out;
+      }
 
       const usedIconUrls = await Promise.all(
         usedIn.map(function (row) {
@@ -1345,7 +1382,18 @@
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "recipe-tooltip__ing-name";
-        nameSpan.textContent = row.recipeSetDisplayName || row.recipeSetBaseName || "";
+        const matchingProducts = productsInSetUsingIngredient(
+          row.recipeSetBaseName,
+          item.name
+        );
+        if (matchingProducts.length === 1) {
+          const onlyProd = itemByName.get(matchingProducts[0]);
+          nameSpan.textContent = onlyProd
+            ? displayName(onlyProd) || onlyProd.name || matchingProducts[0]
+            : matchingProducts[0];
+        } else {
+          nameSpan.textContent = row.recipeSetDisplayName || row.recipeSetBaseName || "";
+        }
         li.appendChild(nameSpan);
 
         ulUsed.appendChild(li);
@@ -1398,6 +1446,17 @@
         recipeTooltipEl.innerHTML = "";
       },
       { passive: true }
+    );
+
+    targetEl.addEventListener(
+      "wheel",
+      function (e) {
+        if (recipeTooltipEl.hidden) return;
+        recipeTooltipEl.scrollTop += e.deltaY;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      { passive: false }
     );
   }
 
