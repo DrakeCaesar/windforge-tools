@@ -2159,33 +2159,75 @@
     if (btn) btn.setAttribute("aria-expanded", "false");
   }
 
-  function setObjectTypeFilterFromDropdown(value) {
+  function setObjectTypeFilterFromDropdown(value, opts) {
     const sel = document.getElementById("filter-object-type");
     if (!sel) return;
     sel.value = value;
     syncObjectTypeDropdownPanel();
-    closeObjectTypePanel();
+    const shouldClose = !(opts && opts.keepOpen);
+    if (shouldClose) closeObjectTypePanel();
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function initObjectTypeDropdown() {
-    const btn = document.getElementById("filter-object-type-btn");
-    const panel = document.getElementById("filter-object-type-panel");
-    const root = document.getElementById("object-type-dropdown-root");
-    if (!btn || !panel || !root) return;
+  /**
+   * Wire a custom dropdown UI to a hidden <select>.
+   * ArrowUp/ArrowDown directly changes selection (native-select-like).
+   */
+  function initSelectDropdown(cfg) {
+    const btn = document.getElementById(cfg.btnId);
+    const panel = document.getElementById(cfg.panelId);
+    const root = document.getElementById(cfg.rootId);
+    const sel = document.getElementById(cfg.selectId);
+    if (!btn || !panel || !root || !sel) return;
+
+    cfg.syncPanel();
+
+    function closePanel() {
+      panel.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+
+    function openPanel() {
+      if (cfg.closeOthers) cfg.closeOthers();
+      panel.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      const selected = panel.querySelector(".object-type-dropdown__option--selected");
+      const target = selected || panel.querySelector(".object-type-dropdown__option");
+      if (target) {
+        target.scrollIntoView({ block: "nearest" });
+        if (typeof target.focus === "function") target.focus();
+      }
+    }
+
+    function setFromDropdown(value, opts) {
+      sel.value = value;
+      cfg.syncPanel();
+      const shouldClose = !(opts && opts.keepOpen);
+      if (shouldClose) closePanel();
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function stepSelect(delta, keepOpen) {
+      const opts = Array.from(sel.options || []);
+      if (!opts.length) return;
+      let idx = sel.selectedIndex;
+      if (idx < 0) idx = 0;
+      const next = Math.max(0, Math.min(opts.length - 1, idx + delta));
+      const v = opts[next] ? opts[next].value : "";
+      setFromDropdown(v, keepOpen ? { keepOpen: true } : undefined);
+    }
 
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
-      if (panel.hidden) {
-        closeSecondarySortPanel();
-        panel.hidden = false;
-        btn.setAttribute("aria-expanded", "true");
-        const selected = panel.querySelector(".object-type-dropdown__option--selected");
-        if (selected) {
-          selected.scrollIntoView({ block: "nearest" });
-        }
-      } else {
-        closeObjectTypePanel();
+      if (panel.hidden) openPanel();
+      else closePanel();
+    });
+
+    btn.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        stepSelect(delta, false);
       }
     });
 
@@ -2194,19 +2236,71 @@
       if (!opt) return;
       e.stopPropagation();
       const value = opt.getAttribute("data-value");
-      setObjectTypeFilterFromDropdown(value != null ? value : "");
+      setFromDropdown(value != null ? value : "");
+    });
+
+    panel.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        stepSelect(delta, true);
+        const selected = panel.querySelector(".object-type-dropdown__option--selected");
+        if (selected) {
+          selected.focus();
+          selected.scrollIntoView({ block: "nearest" });
+        }
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        const v = sel.options && sel.options[0] ? sel.options[0].value : "";
+        setFromDropdown(v, { keepOpen: true });
+        const selected = panel.querySelector(".object-type-dropdown__option--selected");
+        if (selected) selected.focus();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        const lastIdx = sel.options ? sel.options.length - 1 : -1;
+        const v = lastIdx >= 0 ? sel.options[lastIdx].value : "";
+        setFromDropdown(v, { keepOpen: true });
+        const selected = panel.querySelector(".object-type-dropdown__option--selected");
+        if (selected) selected.focus();
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const active = document.activeElement;
+        const opt =
+          active && active.classList && active.classList.contains("object-type-dropdown__option")
+            ? active
+            : null;
+        if (opt) {
+          const value = opt.getAttribute("data-value");
+          setFromDropdown(value != null ? value : "");
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closePanel();
+        btn.focus();
+      }
     });
 
     document.addEventListener("click", function (e) {
       if (panel.hidden) return;
       if (root.contains(e.target)) return;
-      closeObjectTypePanel();
+      closePanel();
     });
 
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) {
-        closeObjectTypePanel();
+        closePanel();
       }
+    });
+  }
+
+  function initObjectTypeDropdown() {
+    initSelectDropdown({
+      btnId: "filter-object-type-btn",
+      panelId: "filter-object-type-panel",
+      rootId: "object-type-dropdown-root",
+      selectId: "filter-object-type",
+      closeOthers: closeSecondarySortPanel,
+      syncPanel: syncObjectTypeDropdownPanel,
     });
   }
 
@@ -2250,56 +2344,24 @@
     if (btn) btn.setAttribute("aria-expanded", "false");
   }
 
-  function setSecondarySortFromDropdown(value) {
+  function setSecondarySortFromDropdown(value, opts) {
     const sel = document.getElementById("secondary-sort");
     if (!sel) return;
     sel.value = value;
     syncSecondarySortDropdownPanel();
-    closeSecondarySortPanel();
+    const shouldClose = !(opts && opts.keepOpen);
+    if (shouldClose) closeSecondarySortPanel();
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function initSecondarySortDropdown() {
-    const btn = document.getElementById("secondary-sort-btn");
-    const panel = document.getElementById("secondary-sort-panel");
-    const root = document.getElementById("secondary-sort-dropdown-root");
-    if (!btn || !panel || !root) return;
-
-    syncSecondarySortDropdownPanel();
-
-    btn.addEventListener("click", function (e) {
-      e.stopPropagation();
-      if (panel.hidden) {
-        closeObjectTypePanel();
-        panel.hidden = false;
-        btn.setAttribute("aria-expanded", "true");
-        const selected = panel.querySelector(".object-type-dropdown__option--selected");
-        if (selected) {
-          selected.scrollIntoView({ block: "nearest" });
-        }
-      } else {
-        closeSecondarySortPanel();
-      }
-    });
-
-    panel.addEventListener("click", function (e) {
-      const opt = e.target.closest(".object-type-dropdown__option");
-      if (!opt) return;
-      e.stopPropagation();
-      const value = opt.getAttribute("data-value");
-      setSecondarySortFromDropdown(value != null ? value : "");
-    });
-
-    document.addEventListener("click", function (e) {
-      if (panel.hidden) return;
-      if (root.contains(e.target)) return;
-      closeSecondarySortPanel();
-    });
-
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !panel.hidden) {
-        closeSecondarySortPanel();
-      }
+    initSelectDropdown({
+      btnId: "secondary-sort-btn",
+      panelId: "secondary-sort-panel",
+      rootId: "secondary-sort-dropdown-root",
+      selectId: "secondary-sort",
+      closeOthers: closeObjectTypePanel,
+      syncPanel: syncSecondarySortDropdownPanel,
     });
   }
 
