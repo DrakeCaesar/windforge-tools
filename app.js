@@ -3281,15 +3281,25 @@
           "aria-sort",
           active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
         );
-        if (isDiagonalNum) {
-          appendDiagonalHeaderLabel(th, col.label);
-        } else {
-        th.appendChild(document.createTextNode(col.label));
-        }
         const hint = document.createElement("span");
         hint.className = "sort-hint";
         hint.setAttribute("aria-hidden", "true");
-        th.appendChild(hint);
+        if (isDiagonalNum) {
+          appendDiagonalHeaderLabel(th, col.label);
+          th.appendChild(hint);
+        } else {
+          const inner = document.createElement("span");
+          inner.className = "col-header-inner";
+          const row = document.createElement("span");
+          row.className = "col-header-label-row";
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "col-header-label";
+          labelSpan.textContent = col.label;
+          row.appendChild(hint);
+          row.appendChild(labelSpan);
+          inner.appendChild(row);
+          th.appendChild(inner);
+        }
       }
       tr.appendChild(th);
     }

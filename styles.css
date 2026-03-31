@@ -820,6 +820,55 @@ main {
   padding: 0;
 }
 
+/* Normal sortable headers: ◇ left, title beside it; group pinned to bottom of cell (`<th>` stays `table-cell`). */
+.wiki-table thead th.sortable:not(.num-diagonal) {
+  vertical-align: bottom;
+  padding: 0 9px 8px 9px;
+}
+
+.wiki-table thead th.sortable:not(.num-diagonal) .col-header-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 100%;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.wiki-table thead th.sortable:not(.num-diagonal) .col-header-label-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.wiki-table thead th.sortable:not(.num-diagonal) .col-header-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wiki-table thead th.sortable:not(.num-diagonal) .sort-hint {
+  /* `relative` so `::after` chevrons/diamond position vs this 10×10 box, not `th`. */
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  font-size: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* Plain / vertical sortable headers: row background hover. */
 .wiki-table thead th.sortable:hover:not(.num-diagonal) {
   background: var(--sortable-hover);
@@ -840,7 +889,8 @@ main {
   border-left-color: var(--thead-bg);
 }
 
-.wiki-table thead th.sortable .sort-hint {
+/* Diagonal headers only: `.sort-hint` is a direct child of `<th>`. Nested hints (normal columns) must stay in-flow in `.col-header-label-row`. */
+.wiki-table thead th.sortable > .sort-hint {
   position: absolute;
   right: 4px;
   top: 50%;
