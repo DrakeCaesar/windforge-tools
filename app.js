@@ -722,6 +722,28 @@
   /** Keep one live <img> per item so virtualized row remounts don't recreate image resources. */
   const liveIconNodeByItemName = new Map();
 
+  async function buildLiveIconPoolForAllItems() {
+    liveIconNodeByItemName.clear();
+    const items = data.ItemList;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const url = iconUrlFor(item);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.loading = "eager";
+      img.classList.add("item-icon");
+      const dataUrl = await ensureIconDataUrlForItem(item);
+      const tint = getTintColorsForItem(item);
+      if (tint) img.classList.add("item-icon--tinted");
+      img.src = dataUrl;
+      if (typeof img.decode === "function") {
+        // Best-effort warm decode cache so re-attaching doesn't trigger a new load/decode path.
+        img.decode().catch(function () {});
+      }
+      liveIconNodeByItemName.set(item.name, img);
+    }
+  }
+
   /** Estimated row height used before we measure individual rows. */
   let ROW_HEIGHT = 60;
   const VIRTUAL_OVERSCAN = 12;
@@ -3178,6 +3200,7 @@
     }
 
     await preloadAllIcons();
+    await buildLiveIconPoolForAllItems();
 
     render();
   }
