@@ -719,7 +719,7 @@
     paMaxProjSpeed: COL_PX_STAT,
     paPhysDmg: COL_PX_STAT,
     paKnockback: COL_PX_STAT,
-    json: 64,
+    json: 48,
   };
 
   const STORAGE_KEY = "windforge-item-catalog-ui-v1";
@@ -3250,7 +3250,7 @@
         th.textContent = col.label;
       } else if (!col.sortable) {
         if (col.id === "json") {
-          th.className = "col-json num-diagonal";
+          th.className = "col-json num-diagonal hdr-diagonal-json";
           appendDiagonalHeaderLabel(th, col.label);
         } else {
         th.textContent = col.label;
@@ -3273,7 +3273,7 @@
         const isNum = col.type === "number";
         const isDiagonalNum = isNum;
         if (isNum) cls += " num";
-        if (isDiagonalNum) cls += " num-diagonal";
+        if (isDiagonalNum) cls += " num-diagonal hdr-diagonal-stat";
         th.className = cls;
         th.dataset.sort = col.id;
         const active = col.id === sortColumn;

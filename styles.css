@@ -558,6 +558,15 @@ main {
   z-index: 1;
 }
 
+/* JSON is the last column: no diagonal “runout” to the right — anchor label from the left instead of column center. */
+.wiki-table thead th.col-json.num-diagonal .num-diagonal-label {
+  transform: rotate(-45deg);
+  transform-origin: bottom left;
+  transform: translateX(6px) rotate(-45deg);
+  padding: 1px 1px;
+  
+}
+
 .table-body-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -804,8 +813,9 @@ main {
 
 .wiki-table thead th.col-icon {
   text-align: center;
-  padding-left: 4px;
-  padding-right: 4px;
+  vertical-align: bottom;
+  /* Match bottom padding with other header cells when the row is tall (e.g. diagonal columns). */
+  padding: 0 9px 8px 9px;
 }
 
 .wiki-table thead th.sortable {
@@ -846,6 +856,11 @@ main {
   gap: 6px;
   width: 100%;
   min-width: 0;
+}
+
+/* Flat header immediately after a stat diagonal: inset from skew overlap (◇ + label stay on the diagonal cell). */
+.wiki-table thead th.hdr-diagonal-stat + th:not(.hdr-diagonal-stat):not(.hdr-diagonal-json) {
+  padding-left: 25px;
 }
 
 .wiki-table thead th.sortable:not(.num-diagonal) .col-header-label {
