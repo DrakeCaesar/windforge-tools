@@ -1012,15 +1012,11 @@ main {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 28px var(--shadow-pop);
-  pointer-events: none;
+  pointer-events: auto;
   font-size: 13px;
   line-height: 1.35;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
-}
-
-.recipe-tooltip.recipe-tooltip--pinned {
-  pointer-events: auto;
 }
 
 .recipe-tooltip::-webkit-scrollbar {

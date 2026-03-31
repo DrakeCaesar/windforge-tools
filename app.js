@@ -1187,27 +1187,59 @@
     return p;
   }
 
-  function positionRecipeTooltip(clientX, clientY) {
-    const padX = 32;
-    const padY = -16;
+  function positionRecipeTooltip(clientX, clientY, anchorEl) {
     const margin = 8;
+    const iconGap = -1;
     const minH = 160;
-    const below = window.innerHeight - margin - (clientY + padY);
-    const above = clientY - margin - padY;
+    const anchor = anchorEl != null ? anchorEl : recipeTooltipAnchorTarget;
+    const anchorRect =
+      anchor &&
+      anchor.isConnected &&
+      typeof anchor.getBoundingClientRect === "function"
+        ? anchor.getBoundingClientRect()
+        : null;
+    const below = window.innerHeight - margin - clientY;
+    const above = clientY - margin;
     const placeBelow = below >= minH || below >= above;
     const maxH = Math.max(minH, placeBelow ? below : above);
     recipeTooltipEl.style.maxHeight = Math.floor(maxH) + "px";
     recipeTooltipEl.style.position = "fixed";
-    recipeTooltipEl.style.left = clientX + padX + "px";
-    recipeTooltipEl.style.top = (placeBelow ? clientY + padY : clientY - padY) + "px";
+    const initialX = anchorRect ? anchorRect.right + iconGap : clientX;
+    recipeTooltipEl.style.left = initialX + "px";
+    recipeTooltipEl.style.top = (placeBelow ? clientY : clientY - maxH) + "px";
     recipeTooltipEl.style.zIndex = "10000";
     requestAnimationFrame(function () {
       if (recipeTooltipEl.hidden) return;
       const r = recipeTooltipEl.getBoundingClientRect();
-      let x = clientX + padX;
-      let y = placeBelow ? clientY + padY : clientY - padY - r.height;
-      if (x + r.width > window.innerWidth - margin) {
-        x = Math.max(margin, window.innerWidth - r.width - margin);
+      const ar2 =
+        anchor &&
+        anchor.isConnected &&
+        typeof anchor.getBoundingClientRect === "function"
+          ? anchor.getBoundingClientRect()
+          : null;
+      let x;
+      if (ar2) {
+        x = ar2.right + iconGap;
+        if (x + r.width > window.innerWidth - margin) {
+          const left = ar2.left - iconGap - r.width;
+          if (left >= margin) {
+            x = left;
+          } else {
+            x = Math.max(margin, window.innerWidth - r.width - margin);
+          }
+        }
+      } else {
+        x = clientX;
+        if (x + r.width > window.innerWidth - margin) {
+          x = Math.max(margin, window.innerWidth - r.width - margin);
+        }
+      }
+      let y = placeBelow ? clientY : clientY - r.height;
+      const firstIconEl = recipeTooltipEl.querySelector(".recipe-tooltip__ing-icon");
+      if (firstIconEl && typeof firstIconEl.getBoundingClientRect === "function") {
+        const firstIconRect = firstIconEl.getBoundingClientRect();
+        const firstIconCenterOffset = firstIconRect.top - r.top + firstIconRect.height / 2;
+        y = clientY - firstIconCenterOffset;
       }
       if (y + r.height > window.innerHeight - margin) {
         y = Math.max(margin, window.innerHeight - r.height - margin);
@@ -1220,6 +1252,7 @@
   }
 
   function hideRecipeTooltip() {
+    cancelRecipeTooltipHideDeferred();
     recipeTooltipShowToken++;
     recipeTooltipEl.hidden = true;
     recipeTooltipEl.classList.remove("recipe-tooltip--pinned");
@@ -1228,15 +1261,88 @@
     recipeTooltipScrollArmed = false;
     recipeTooltipPinned = false;
     recipeTooltipPinnedTarget = null;
+    recipeTooltipAnchorTarget = null;
   }
 
   let recipeTooltipScrollArmed = false;
   let recipeTooltipPinned = false;
   let recipeTooltipPinnedTarget = null;
+  let recipeTooltipAnchorTarget = null;
   let recipeTooltipShowToken = 0;
   let lastPointerClientX = null;
   let lastPointerClientY = null;
+  let recipeTooltipHideTimer = null;
   const recipeHoverItemByTarget = new WeakMap();
+
+  const RECIPE_TOOLTIP_HIDE_DELAY_MS = 50;
+
+  function pointInExpandedRect(rect, px, py, inflate) {
+    const m = inflate || 0;
+    return (
+      px >= rect.left - m &&
+      px <= rect.right + m &&
+      py >= rect.top - m &&
+      py <= rect.bottom + m
+    );
+  }
+
+  function isPointerOverRecipeTooltipZone(clientX, clientY) {
+    if (recipeTooltipEl.hidden) return false;
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const inflate = 8;
+    const tr = recipeTooltipEl.getBoundingClientRect();
+    if (pointInExpandedRect(tr, clientX, clientY, inflate)) return true;
+    const anchor = recipeTooltipAnchorTarget;
+    if (!anchor || !anchor.isConnected) return false;
+    const ar = anchor.getBoundingClientRect();
+    if (pointInExpandedRect(ar, clientX, clientY, inflate)) return true;
+    if (ar.right < tr.left) {
+      if (clientX >= ar.right - inflate && clientX <= tr.left + inflate) {
+        const yTop = Math.min(ar.top, tr.top) - inflate;
+        const yBot = Math.max(ar.bottom, tr.bottom) + inflate;
+        if (clientY >= yTop && clientY <= yBot) return true;
+      }
+    } else if (tr.right < ar.left) {
+      if (clientX >= tr.right - inflate && clientX <= ar.left + inflate) {
+        const yTop = Math.min(ar.top, tr.top) - inflate;
+        const yBot = Math.max(ar.bottom, tr.bottom) + inflate;
+        if (clientY >= yTop && clientY <= yBot) return true;
+      }
+    }
+    return false;
+  }
+
+  function shouldKeepRecipeTooltipOpen() {
+    const x = lastPointerClientX;
+    const y = lastPointerClientY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (isPointerOverRecipeTooltipZone(x, y)) return true;
+    const el = document.elementFromPoint(x, y);
+    if (el && recipeTooltipEl.contains(el)) return true;
+    if (el && typeof el.closest === "function" && el.closest("[data-recipe-hover-bound='1']")) {
+      return true;
+    }
+    return false;
+  }
+
+  function cancelRecipeTooltipHideDeferred() {
+    if (recipeTooltipHideTimer != null) {
+      clearTimeout(recipeTooltipHideTimer);
+      recipeTooltipHideTimer = null;
+    }
+  }
+
+  function scheduleRecipeTooltipHideDeferred() {
+    if (recipeTooltipPinned) return;
+    cancelRecipeTooltipHideDeferred();
+    recipeTooltipHideTimer = setTimeout(function () {
+      recipeTooltipHideTimer = null;
+      if (recipeTooltipPinned) return;
+      if (recipeTooltipEl.hidden) return;
+      if (shouldKeepRecipeTooltipOpen()) return;
+      hideRecipeTooltip();
+    }, RECIPE_TOOLTIP_HIDE_DELAY_MS);
+  }
 
   function getRecipeHoverTargetAtPoint(x, y) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
@@ -1248,11 +1354,13 @@
   function showRecipeTooltipAtPointer(targetEl, clientX, clientY) {
     const item = recipeHoverItemByTarget.get(targetEl);
     if (!item) return;
+    cancelRecipeTooltipHideDeferred();
+    recipeTooltipAnchorTarget = targetEl || null;
     const token = ++recipeTooltipShowToken;
     void (async function () {
       await fillRecipeTooltip(item);
       if (token !== recipeTooltipShowToken) return;
-      positionRecipeTooltip(clientX, clientY);
+      positionRecipeTooltip(clientX, clientY, targetEl);
     })();
   }
 
@@ -1618,7 +1726,8 @@
         lastPointerClientX = e.clientX;
         lastPointerClientY = e.clientY;
         if (!recipeTooltipEl.hidden && !recipeTooltipPinned) {
-          positionRecipeTooltip(e.clientX, e.clientY);
+          cancelRecipeTooltipHideDeferred();
+          positionRecipeTooltip(e.clientX, e.clientY, targetEl);
         }
       },
       { passive: true }
@@ -1629,7 +1738,7 @@
         if (recipeTooltipPinned) return;
         const rt = e.relatedTarget;
         if (rt && recipeTooltipEl && recipeTooltipEl.contains(rt)) return;
-        hideRecipeTooltip();
+        scheduleRecipeTooltipHideDeferred();
       },
       { passive: true }
     );
@@ -1675,11 +1784,16 @@
         if (
           t &&
           typeof t.closest === "function" &&
-          t.closest("[data-recipe-hover-bound='1']")
+          (t.closest("[data-recipe-hover-bound='1']") || t.closest("#recipe-tooltip"))
         ) {
+          cancelRecipeTooltipHideDeferred();
           return;
         }
-        hideRecipeTooltip();
+        if (isPointerOverRecipeTooltipZone(e.clientX, e.clientY)) {
+          cancelRecipeTooltipHideDeferred();
+          return;
+        }
+        scheduleRecipeTooltipHideDeferred();
       },
       { passive: true }
     );
@@ -1704,13 +1818,13 @@
       "wheel",
       function (e) {
         if (recipeTooltipEl.hidden) return;
-        if (!recipeTooltipScrollArmed) return;
         const t = e.target;
-        if (
-          !t ||
-          typeof t.closest !== "function" ||
-          (!t.closest("[data-recipe-hover-bound='1']") && !t.closest("#recipe-tooltip"))
-        ) {
+        if (!t || typeof t.closest !== "function") return;
+        const onTooltip = t.closest("#recipe-tooltip");
+        const onIcon = t.closest("[data-recipe-hover-bound='1']");
+        if (recipeTooltipScrollArmed) {
+          if (!onTooltip && !onIcon) return;
+        } else if (!onTooltip) {
           return;
         }
         e.preventDefault();
@@ -1725,9 +1839,17 @@
     );
 
     recipeTooltipEl.addEventListener(
+      "mouseenter",
+      function () {
+        cancelRecipeTooltipHideDeferred();
+      },
+      { passive: true }
+    );
+
+    recipeTooltipEl.addEventListener(
       "click",
       function (e) {
-        pinRecipeTooltip(recipeTooltipPinnedTarget);
+        pinRecipeTooltip(recipeTooltipPinnedTarget || recipeTooltipAnchorTarget);
         const icon = e.target.closest(".recipe-tooltip__ing-icon[data-item-name]");
         if (!icon) return;
         const itemName = icon.getAttribute("data-item-name");
