@@ -385,7 +385,6 @@
   }
 
   function itemUsesMeleeWeaponSetupStats(item) {
-    if (!item) return false;
     return (
       item.objectType === MELEE_WEAPON_OBJECT_TYPE ||
       item.objectType === JACKHAMMER_OBJECT_TYPE
@@ -418,22 +417,18 @@
   }
 
   function getPlaceBlockStatsRow(item) {
-    if (!item || item.objectType !== PLACE_BLOCK_ITEM_OBJECT_TYPE) return null;
     const bt = item.blockType;
-    if (bt == null || typeof bt !== "string" || !bt.trim()) return null;
     const row = blockTypes[bt];
-    return row && typeof row === "object" ? row : null;
+    return row;
   }
 
   function getPlaceBlockStatSortValue(item, key) {
     const row = getPlaceBlockStatsRow(item);
-    if (!row) return null;
     const v = row[key];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function placeBlockStatCell(item, key) {
-    if (!item || item.objectType !== PLACE_BLOCK_ITEM_OBJECT_TYPE) return "";
     const row = getPlaceBlockStatsRow(item);
     const v = row[key];
     return formatCatalogStatNumber(v, { hideZero: true });
@@ -448,20 +443,16 @@
   }
 
   function getGrapplingHookSetup(item) {
-    if (!item || item.objectType !== GRAPPLING_HOOK_OBJECT_TYPE) return null;
-    const g = item.grapplingHookSetupInfo;
-    return g && typeof g === "object" ? g : null;
+    return item.grapplingHookSetupInfo;
   }
 
   function getGrapplingHookStatSortValue(item, key) {
     const g = getGrapplingHookSetup(item);
-    if (!g) return null;
     const v = g[key];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function grapplingHookStatCell(item, key) {
-    if (!item || item.objectType !== GRAPPLING_HOOK_OBJECT_TYPE) return "";
     const g = getGrapplingHookSetup(item);
     const v = g[key];
     return formatCatalogStatNumber(v, { hideZero: true });
@@ -476,18 +467,15 @@
   }
 
   function getPlaceableSetupStatSortValue(item, key) {
-    if (!item || !PLACEABLE_SETUP_STAT_TYPE_SET.has(item.objectType)) return null;
     if (item.objectType === PLACE_BLOCK_ITEM_OBJECT_TYPE) {
       return getPlaceBlockStatSortValue(item, key);
     }
     const p = item.placeableSetupInfo;
-    if (!p || typeof p !== "object") return null;
     const v = p[key];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function placeableSetupStatCell(item, key) {
-    if (!item || !PLACEABLE_SETUP_STAT_TYPE_SET.has(item.objectType)) return "";
     if (item.objectType === PLACE_BLOCK_ITEM_OBJECT_TYPE) {
       return placeBlockStatCell(item, key);
     }
@@ -504,15 +492,12 @@
   }
 
   function getPropulsionPlaceItemStatSortValue(item, def) {
-    if (!item || item.objectType !== PLACE_PROPULSION_OBJECT_ITEM_TYPE) return null;
     const p = item.propulsionSetupInfo;
-    if (!p || typeof p !== "object") return null;
     const v = p[def.propulsionSetupKey];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function propulsionPlaceItemStatCell(item, def) {
-    if (!item || item.objectType !== PLACE_PROPULSION_OBJECT_ITEM_TYPE) return "";
     const v = getPropulsionPlaceItemStatSortValue(item, def);
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -526,15 +511,12 @@
   }
 
   function getEnginePlaceItemStatSortValue(item, def) {
-    if (!item || item.objectType !== PLACE_ENGINE_OBJECT_ITEM_TYPE) return null;
     const e = item.engineSetupInfo;
-    if (!e || typeof e !== "object") return null;
     const v = e[def.engineSetupKey];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function enginePlaceItemStatCell(item, def) {
-    if (!item || item.objectType !== PLACE_ENGINE_OBJECT_ITEM_TYPE) return "";
     const v = getEnginePlaceItemStatSortValue(item, def);
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -548,15 +530,12 @@
   }
 
   function getGrinderPlaceItemStatSortValue(item, def) {
-    if (!item || item.objectType !== PLACE_GRINDER_OBJECT_ITEM_TYPE) return null;
     const g = item.grinderSetupInfo;
-    if (!g || typeof g !== "object") return null;
     const v = g[def.grinderSetupKey];
-    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+    return v;
   }
 
   function grinderPlaceItemStatCell(item, def) {
-    if (!item || item.objectType !== PLACE_GRINDER_OBJECT_ITEM_TYPE) return "";
     const v = getGrinderPlaceItemStatSortValue(item, def);
     return formatCatalogStatNumber(v, { hideZero: true });
   }
@@ -570,70 +549,55 @@
   }
 
   function getArtilleryPlaceableWeapon(item) {
-    if (!item || item.objectType !== PLACE_ARTILLERY_SHIP_ITEM_TYPE) return null;
-    const w = item.placeableWeaponSetupInfo;
-    return w && typeof w === "object" ? w : null;
+    return item.placeableWeaponSetupInfo;
   }
 
   function getArtilleryDamageDesc(item) {
     const w = getArtilleryPlaceableWeapon(item);
-    if (!w) return null;
     const g = w.grenadeSetupInfo;
-    const d = g && g.damageDesc;
-    return d && typeof d === "object" ? d : null;
+    return g.damageDesc;
   }
 
   function getArtilleryShipItemStatSortValue(item, def) {
-    if (!item || item.objectType !== PLACE_ARTILLERY_SHIP_ITEM_TYPE) return null;
     if (def.artilleryWeaponKey) {
       const w = getArtilleryPlaceableWeapon(item);
-      if (!w) return null;
       const v = w[def.artilleryWeaponKey];
-      return typeof v === "number" && !Number.isNaN(v) ? v : null;
+      return v;
     }
     if (def.artilleryDamageKey) {
       const d = getArtilleryDamageDesc(item);
-      if (!d) return null;
       const v = d[def.artilleryDamageKey];
-      return typeof v === "number" && !Number.isNaN(v) ? v : null;
+      return v;
     }
     return null;
   }
 
   function artilleryShipItemStatCell(item, def) {
-    if (!item || item.objectType !== PLACE_ARTILLERY_SHIP_ITEM_TYPE) return "";
     const v = getArtilleryShipItemStatSortValue(item, def);
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
   function getClothingEquipSetup(item) {
-    if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return null;
-    const e = item.equipSetupInfo;
-    return e && typeof e === "object" ? e : null;
+    return item.equipSetupInfo;
   }
 
   function clothingTraitRawString(equip, key) {
-    const t = equip && equip.characterTraits;
-    if (!t || typeof t !== "object") return null;
+    const t = equip.characterTraits;
     const v = t[key];
-    if (v == null) return null;
     return typeof v === "string" ? v : String(v);
   }
 
   function clothingTraitNumberForSort(equip, key) {
     const s = clothingTraitRawString(equip, key);
-    if (s == null) return null;
     const n = parseFloat(s);
     return Number.isNaN(n) ? null : n;
   }
 
   function getClothingStatSortValue(item, colDef) {
-    if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return null;
     const e = getClothingEquipSetup(item);
-    if (!e) return null;
     if (colDef.clothingEquipField) {
       const v = e[colDef.clothingEquipField];
-      return typeof v === "number" && !Number.isNaN(v) ? v : null;
+      return v;
     }
     if (colDef.clothingTraitKey) {
       return clothingTraitNumberForSort(e, colDef.clothingTraitKey);
@@ -643,7 +607,6 @@
 
   /** Non-clothing rows get ""; 0-like trait values render empty (like weapon stat cells). */
   function clothingStatCell(item, colDef) {
-    if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return "";
     const e = getClothingEquipSetup(item);
     if (colDef.clothingEquipField) {
       const v = e[colDef.clothingEquipField];
@@ -661,30 +624,20 @@
   }
 
   function getRangedOrThrowableDamageDesc(item) {
-    if (!item) return null;
     if (item.objectType === RANGED_WEAPON_OBJECT_TYPE) {
       const r = item.rangedWeaponSetupInfo;
-      const d = r && r.damageDesc;
-      return d && typeof d === "object" ? d : null;
+      return r.damageDesc;
     }
     if (item.objectType === THROWABLE_WEAPON_OBJECT_TYPE) {
       const t = item.throwableItemSetupInfo;
       const g = t && t.grenadeSetupInfo;
-      const d = g && g.damageDesc;
-      return d && typeof d === "object" ? d : null;
+      return g.damageDesc;
     }
     return null;
   }
 
   /** RangedWeapon / ThrowableWeapon damage field: 0 renders empty (like melee). */
   function rtDamageNumberCell(item, key) {
-    if (
-      !item ||
-      (item.objectType !== RANGED_WEAPON_OBJECT_TYPE &&
-        item.objectType !== THROWABLE_WEAPON_OBJECT_TYPE)
-    ) {
-      return "";
-    }
     const d = getRangedOrThrowableDamageDesc(item);
     const v = d[key];
     return formatCatalogStatNumber(v, { hideZero: true });
