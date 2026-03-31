@@ -525,10 +525,13 @@ main {
   width: max-content;
 }
 
+/* Clip diagonal header paint overflow so it does not widen `.table-x-scroll` (no stray horizontal scrollbar / bleed past the body scrollbar). */
 .table-head-wrap {
   flex: 0 0 auto;
   border-radius: 0;
-  overflow: visible;
+  min-width: 0;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .wiki-table thead th.col-json {
@@ -543,10 +546,16 @@ main {
   top: 0;
   right: calc(-1 * var(--table-scrollbar-gutter-fixed));
   width: var(--table-scrollbar-gutter-fixed);
-  height: calc(100% + 1px);
+  height: 100%;
   background: var(--thead-bg);
-  box-shadow: inset 0 -1px 0 var(--border);
   pointer-events: none;
+  /* Below `.num-diagonal-wrap` so the skewed border is not covered (th::after paints after in-flow content by default). */
+  z-index: 0;
+}
+
+/* Last column: keep diagonal skew + label above the gutter strip (::after). */
+.wiki-table thead th.col-json.num-diagonal .num-diagonal-wrap {
+  z-index: 1;
 }
 
 .table-body-scroll {
@@ -596,77 +605,201 @@ main {
   border-collapse: separate;
   border-spacing: 0;
   font-size: 14px;
-  /* Outer edge comes from perimeter `th`/`td` borders only (avoids doubling with `.table-wrap`). */
+  /* Internal grid: each cell draws left + bottom only (no doubled lines). Outer frame is `.table-wrap`. */
   border: none;
 }
 
 .wiki-table thead th {
   min-width: 0;
+  position: relative;
   background: var(--thead-bg);
   color: var(--text);
   font-weight: 600;
   text-align: left;
   padding: 7px 9px;
-  border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   white-space: nowrap;
   vertical-align: middle;
   overflow: hidden;
 }
 
-/* Outer perimeter border is owned by `.table-wrap`. */
-.wiki-table.wiki-table-head thead th {
-  border-top: none;
+/* Later <th> siblings paint on top by default; raise earlier columns so diagonal headers can extend rightward. */
+.wiki-table thead tr > th:nth-child(1) {
+  z-index: 40;
+}
+.wiki-table thead tr > th:nth-child(2) {
+  z-index: 39;
+}
+.wiki-table thead tr > th:nth-child(3) {
+  z-index: 38;
+}
+.wiki-table thead tr > th:nth-child(4) {
+  z-index: 37;
+}
+.wiki-table thead tr > th:nth-child(5) {
+  z-index: 36;
+}
+.wiki-table thead tr > th:nth-child(6) {
+  z-index: 35;
+}
+.wiki-table thead tr > th:nth-child(7) {
+  z-index: 34;
+}
+.wiki-table thead tr > th:nth-child(8) {
+  z-index: 33;
+}
+.wiki-table thead tr > th:nth-child(9) {
+  z-index: 32;
+}
+.wiki-table thead tr > th:nth-child(10) {
+  z-index: 31;
+}
+.wiki-table thead tr > th:nth-child(11) {
+  z-index: 30;
+}
+.wiki-table thead tr > th:nth-child(12) {
+  z-index: 29;
+}
+.wiki-table thead tr > th:nth-child(13) {
+  z-index: 28;
+}
+.wiki-table thead tr > th:nth-child(14) {
+  z-index: 27;
+}
+.wiki-table thead tr > th:nth-child(15) {
+  z-index: 26;
+}
+.wiki-table thead tr > th:nth-child(16) {
+  z-index: 25;
+}
+.wiki-table thead tr > th:nth-child(17) {
+  z-index: 24;
+}
+.wiki-table thead tr > th:nth-child(18) {
+  z-index: 23;
+}
+.wiki-table thead tr > th:nth-child(19) {
+  z-index: 22;
+}
+.wiki-table thead tr > th:nth-child(20) {
+  z-index: 21;
+}
+.wiki-table thead tr > th:nth-child(21) {
+  z-index: 20;
+}
+.wiki-table thead tr > th:nth-child(22) {
+  z-index: 19;
+}
+.wiki-table thead tr > th:nth-child(23) {
+  z-index: 18;
+}
+.wiki-table thead tr > th:nth-child(24) {
+  z-index: 17;
+}
+.wiki-table thead tr > th:nth-child(25) {
+  z-index: 16;
+}
+.wiki-table thead tr > th:nth-child(26) {
+  z-index: 15;
+}
+.wiki-table thead tr > th:nth-child(27) {
+  z-index: 14;
+}
+.wiki-table thead tr > th:nth-child(28) {
+  z-index: 13;
+}
+.wiki-table thead tr > th:nth-child(29) {
+  z-index: 12;
+}
+.wiki-table thead tr > th:nth-child(30) {
+  z-index: 11;
+}
+.wiki-table thead tr > th:nth-child(31) {
+  z-index: 10;
+}
+.wiki-table thead tr > th:nth-child(32) {
+  z-index: 9;
 }
 
+/* Outer top edge is `.table-wrap` (no cell top border). */
 .wiki-table.wiki-table-head thead th:first-child {
   border-left: none;
-}
-
-.wiki-table.wiki-table-head thead th.col-json {
-  border-right: none;
 }
 
 /* Numeric columns: plain right align (headers + cells use `th.num` / `td.num`). */
 .wiki-table thead th.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  /* The rotated label uses `transform`, which doesn't affect layout.
-     So we allocate space via the `.num-label-wrap` inside the cell. */
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
-/* Diagonal numeric header labels: keep horizontal column width stable. */
-.wiki-table thead th.num-diagonal .num-label-wrap {
+.wiki-table thead th.num-diagonal {
+  height: 92px;
+  vertical-align: bottom;
+  position: relative;
+  padding: 0;
+  overflow: visible;
+  border-left: 1px solid var(--thead-bg);
+}
+
+/* Rotated numeric header labels (stable table layout pattern). */
+.wiki-table thead th.num-diagonal .num-diagonal-wrap {
   display: block;
-  height: 66px;
+  height: 100%;
   width: 100%;
   overflow: visible;
-  padding: 0 2px 2px 0;
   position: relative;
+  z-index: 0;
 }
 
-.wiki-table thead th.num-diagonal .num-label {
+.wiki-table thead th.num-diagonal .num-diagonal-wrap::before {
+  content: "";
   position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 0;
+  bottom: 0;
+  background: var(--thead-bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transform: skewX(-45deg);
+  transform-origin: bottom;
+  /* Hit-test the skewed tile (not only the pre-transform `th` box). */
+  pointer-events: auto;
+  z-index: 0;
+}
+
+
+.wiki-table thead th.num-diagonal .num-diagonal-label {
+  position: absolute;
+  /* Pre-rotation: start of text on the column centerline; then rotate about that corner. */
   left: 50%;
-  top: 50%;
+  bottom: 0px;
   white-space: nowrap;
-  transform: translate(-50%, -50%) rotate(-45deg);
-  transform-origin: center;
+  transform: translateX(14px) rotate(-45deg);
+  transform-origin: bottom left;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: inherit;
+  padding: 1px 10px;
+  z-index: 1;
+}
+
+.wiki-table thead th.num-diagonal .num-diagonal-label .num-diagonal-label-text {
+  display: inline-block;
 }
 
 .wiki-table thead th.num-diagonal.sortable .sort-hint {
-  /* Overlap allowed for diagonal label; keep the hint vertically centered. */
-  top: 50%;
-  transform: translateY(-50%);
-  /* Allow horizontal overlap with the diagonal label. */
-  right: 2px;
-}
-
-.wiki-table thead th.num-diagonal.sortable {
-  /* Reclaim right padding so the sort hint can sit closer/overlap. */
-  padding: 2px;
+  top: auto;
+  right: auto;
+  /* To the left of column center: 10px diamond + ~6px gap before label start at 50%. */
+  left: calc(50% + 3px);
+  bottom: 4px;
+  transform: none;
+  align-items: center;
 }
 
 .wiki-table thead th.col-icon {
@@ -682,8 +815,29 @@ main {
   padding-right: 22px;
 }
 
-.wiki-table thead th.sortable:hover {
+/* Diagonal headers: `.sortable` padding-right would shrink the cell and offset the skew overlay — keep full column box. */
+.wiki-table thead th.num-diagonal.sortable {
+  padding: 0;
+}
+
+/* Plain / vertical sortable headers: row background hover. */
+.wiki-table thead th.sortable:hover:not(.num-diagonal) {
   background: var(--sortable-hover);
+}
+
+/* Diagonal sortable: highlight the skew tile (see `::before` pointer-events). */
+.wiki-table thead th.num-diagonal.sortable:hover .num-diagonal-wrap::before {
+  background: var(--sortable-hover);
+}
+
+.wiki-table thead th.col-json.sortable:hover::after {
+  background: var(--sortable-hover);
+}
+
+.wiki-table thead th.num-diagonal.sortable:hover {
+  /* Keep left seam invisible (same as idle); hover paint is only on `.num-diagonal-wrap::before`. */
+  border-bottom-color: var(--sortable-hover);
+  border-left-color: var(--thead-bg);
 }
 
 .wiki-table thead th.sortable .sort-hint {
@@ -695,6 +849,7 @@ main {
   height: 10px;
   font-size: 0;
   pointer-events: none;
+  z-index: 2;
 }
 
 /* Border chevrons / diamond (same technique as `.object-type-dropdown__btn::after` / wisdom spin). */
@@ -748,15 +903,10 @@ main {
 .wiki-table tbody td {
   min-width: 0;
   padding: 4px 4px;
-  border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   vertical-align: middle;
   overflow: hidden;
-}
-
-/* Keep diagonal rotated labels un-clipped without affecting column width. */
-.wiki-table thead th.num-diagonal {
-  overflow: visible;
 }
 
 /* Striping by data row index (virtual scroll uses spacer rows). */
@@ -777,21 +927,14 @@ main {
   vertical-align: top;
 }
 
-/* Body table sits below the header table: avoid a double line under thead.
-   Do not use `tr.v-row:first-of-type` — a top spacer row would break the border before the first data row. */
-.wiki-table-body tbody > tr:first-child:not(.v-spacer) td {
-  border-top: none;
-}
-
+/* First column: outer edge is `.table-wrap`. */
 .wiki-table-body tbody td:first-child {
   border-left: none;
 }
 
-.wiki-table-body tbody td:last-child {
-  border-right: none;
-}
-
-.wiki-table-body tbody > tr:last-child:not(.v-spacer) td {
+/* Last data row: outer bottom is `.table-wrap` (virtual scroll may end with a spacer row). */
+.wiki-table-body tbody tr.v-row:last-child td,
+.wiki-table-body tbody tr.v-row:has(+ tr.v-spacer) td {
   border-bottom: none;
 }
 
@@ -850,11 +993,6 @@ main {
   white-space: normal;
   overflow-wrap: break-word;
   word-break: normal;
-}
-
-.wiki-table th.col-melee-dmg,
-.wiki-table td.col-melee-dmg {
-  font-size: 12px;
 }
 
 .item-icon {

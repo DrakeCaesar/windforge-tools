@@ -82,7 +82,7 @@
     { id: "sell", label: "Sell", sortable: true, type: "number" },
     {
       id: "componentSell",
-      label: "Comp sell",
+      label: "Component sell",
       sortable: true,
       type: "number",
     },
@@ -399,6 +399,11 @@
     return v === RANGED_WEAPON_OBJECT_TYPE || v === THROWABLE_WEAPON_OBJECT_TYPE;
   }
 
+  function showRtChemicalDamageColumn() {
+    const v = objectTypeFilterValue();
+    return v !== RANGED_WEAPON_OBJECT_TYPE;
+  }
+
   function showClothingStatColumns() {
     return objectTypeFilterValue() === CLOTHING_ITEM_OBJECT_TYPE;
   }
@@ -413,6 +418,10 @@
 
   function showPlaceBlockStatColumns() {
     return objectTypeFilterValue() === PLACE_BLOCK_ITEM_OBJECT_TYPE;
+  }
+
+  function showPlaceBlockImpactColumn() {
+    return false;
   }
 
   function isPlaceBlockStatColumnDef(def) {
@@ -463,6 +472,16 @@
 
   function showPlaceableSetupStatColumns() {
     return PLACEABLE_SETUP_STAT_TYPE_SET.has(objectTypeFilterValue());
+  }
+
+  function showPlaceableBuoyancyColumn() {
+    const v = objectTypeFilterValue();
+    return (
+      v !== PLACE_ENGINE_OBJECT_ITEM_TYPE &&
+      v !== PLACE_GRINDER_OBJECT_ITEM_TYPE &&
+      v !== PLACE_OBJECT_ITEM_TYPE &&
+      v !== PLACE_SHIP_SCAFFOLDING_ITEM_TYPE
+    );
   }
 
   function isPlaceableSetupStatColumnDef(def) {
@@ -765,6 +784,7 @@
   /** Filtered + sorted list for the current table; virtual scroll reads from this. */
   let virtualList = [];
   let statColumnDecimalsById = Object.create(null);
+  let statColumnWidthPxById = Object.create(null);
   let virtualScrollRaf = null;
   let virtualScrollAttached = false;
   let virtualResizeAttached = false;
@@ -821,10 +841,16 @@
     ) {
       return "display";
     }
+    if (id === "rtChemicalDamage" && filter === RANGED_WEAPON_OBJECT_TYPE) {
+      return "display";
+    }
     if (isClothingStatColumnDef(def) && filter !== CLOTHING_ITEM_OBJECT_TYPE) {
       return "display";
     }
     if (isPlaceBlockStatColumnDef(def) && filter !== PLACE_BLOCK_ITEM_OBJECT_TYPE) {
+      return "display";
+    }
+    if (id === "pbImpactDmgMult" && filter === PLACE_BLOCK_ITEM_OBJECT_TYPE) {
       return "display";
     }
     if (isGrapplingHookStatColumnDef(def) && filter !== GRAPPLING_HOOK_OBJECT_TYPE) {
@@ -833,6 +859,15 @@
     if (
       isPlaceableSetupStatColumnDef(def) &&
       !PLACEABLE_SETUP_STAT_TYPE_SET.has(filter)
+    ) {
+      return "display";
+    }
+    if (
+      id === "plBuoyancy" &&
+      (filter === PLACE_ENGINE_OBJECT_ITEM_TYPE ||
+        filter === PLACE_GRINDER_OBJECT_ITEM_TYPE ||
+        filter === PLACE_OBJECT_ITEM_TYPE ||
+        filter === PLACE_SHIP_SCAFFOLDING_ITEM_TYPE)
     ) {
       return "display";
     }
@@ -861,18 +896,18 @@
   }
 
   function readPersistedUI() {
-    const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     const o = parsed && typeof parsed === "object" ? parsed : {};
-    return {
-      q: typeof o.q === "string" ? o.q : "",
-      objectType: typeof o.objectType === "string" ? o.objectType : "",
-      sortColumn: normalizeSortColumn(
-        o.sortColumn,
-        typeof o.objectType === "string" ? o.objectType : ""
-      ),
-      sortDir: o.sortDir === "desc" ? "desc" : "asc",
-      secondarySortMode: normalizeSecondarySortMode(o.secondarySortMode),
+      return {
+        q: typeof o.q === "string" ? o.q : "",
+        objectType: typeof o.objectType === "string" ? o.objectType : "",
+        sortColumn: normalizeSortColumn(
+          o.sortColumn,
+          typeof o.objectType === "string" ? o.objectType : ""
+        ),
+        sortDir: o.sortDir === "desc" ? "desc" : "asc",
+        secondarySortMode: normalizeSecondarySortMode(o.secondarySortMode),
       wisdomStat: normalizeWisdomStat(o.wisdomStat),
       hideSpecialItems: o.hideSpecialItems === true,
       showSpecialOnly: o.showSpecialOnly === true,
@@ -883,22 +918,22 @@
   }
 
   function persistUI() {
-    const qEl = document.getElementById("q");
-    const sel = document.getElementById("filter-object-type");
+      const qEl = document.getElementById("q");
+      const sel = document.getElementById("filter-object-type");
     const hideSpecialEl = document.getElementById("hide-special-items");
     const specialOnlyEl = document.getElementById("show-special-only");
     const wisdomEl = document.getElementById("wisdom-stat");
     const hideNormalTierEl = document.getElementById("hide-normal-tier");
     const hideQualityTierEl = document.getElementById("hide-quality-tier");
     const hideMastercraftTierEl = document.getElementById("hide-mastercraft-tier");
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        q: qEl ? qEl.value : "",
-        objectType: sel ? sel.value : "",
-        sortColumn: sortColumn,
-        sortDir: sortDir,
-        secondarySortMode: secondarySortMode,
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          q: qEl ? qEl.value : "",
+          objectType: sel ? sel.value : "",
+          sortColumn: sortColumn,
+          sortDir: sortDir,
+          secondarySortMode: secondarySortMode,
         wisdomStat: normalizeWisdomStat(wisdomEl && wisdomEl.value),
         hideSpecialItems: !!(hideSpecialEl && hideSpecialEl.checked),
         showSpecialOnly: !!(specialOnlyEl && specialOnlyEl.checked),
@@ -2155,6 +2190,13 @@
     return 3;
   }
 
+  function getColumnStatWidthPx(colId) {
+    if (Object.prototype.hasOwnProperty.call(statColumnWidthPxById, colId)) {
+      return statColumnWidthPxById[colId];
+    }
+    return null;
+  }
+
   /** `inventorySetupInfo.iconPrimaryColor` / `iconSecondaryColor` only (Icon* names in colours). */
   function getIconColorNames(item) {
     const inv = item.inventorySetupInfo;
@@ -2241,7 +2283,7 @@
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     let imageData;
-    ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0);
     imageData = ctx.getImageData(0, 0, w, h);
     const d = imageData.data;
 
@@ -2333,7 +2375,7 @@
     const ctx = canvas.getContext("2d");
     let imageData;
     ctx.drawImage(img, 0, 0);
-    imageData = ctx.getImageData(0, 0, w, h);
+      imageData = ctx.getImageData(0, 0, w, h);
     const d = imageData.data;
     const pr = primaryRgb;
     const sr = secondaryRgb;
@@ -2356,7 +2398,7 @@
       d[i + 2] = mixByte(pr.b, sr.b, wRed, wGreen);
     }
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL("image/png");
+      return canvas.toDataURL("image/png");
   }
 
   /**
@@ -2519,12 +2561,15 @@
       const c = COLUMNS[i];
       if (!showMeleeCols && isMeleeStatsColumnId(c.id)) continue;
       if (c.rtDamageKey && !showRangedThrowableStatColumns()) continue;
+      if (c.id === "rtChemicalDamage" && !showRtChemicalDamageColumn()) continue;
       if (isClothingStatColumnDef(c) && !showClothingStatColumns()) continue;
       if (isPlaceBlockStatColumnDef(c) && !showPlaceBlockStatColumns()) continue;
+      if (c.id === "pbImpactDmgMult" && !showPlaceBlockImpactColumn()) continue;
       if (isGrapplingHookStatColumnDef(c) && !showGrapplingHookStatColumns()) continue;
       if (isPlaceableSetupStatColumnDef(c) && !showPlaceableSetupStatColumns()) {
         continue;
       }
+      if (c.id === "plBuoyancy" && !showPlaceableBuoyancyColumn()) continue;
       if (isPropulsionPlaceItemStatColumnDef(c) && !showPropulsionPlaceItemStatColumns()) {
         continue;
       }
@@ -2553,7 +2598,8 @@
     let totalPx = 0;
     for (let j = 0; j < cols.length; j++) {
       const id = cols[j].id;
-      const px = Math.max(16, COLUMN_WIDTH_PX[id] ?? COL_PX_STAT);
+      const dynamicPx = getColumnStatWidthPx(id);
+      const px = Math.max(16, dynamicPx ?? COLUMN_WIDTH_PX[id] ?? COL_PX_STAT);
       totalPx += px;
       const col = document.createElement("col");
       col.style.width = px + "px";
@@ -2966,8 +3012,8 @@
     if (isEnginePlaceItemStatColumnDef(def)) return getEnginePlaceItemStatSortValue(item, def);
     if (isGrinderPlaceItemStatColumnDef(def)) return getGrinderPlaceItemStatSortValue(item, def);
     if (isArtilleryShipItemStatColumnDef(def)) return getArtilleryShipItemStatSortValue(item, def);
-    return "";
-  }
+        return "";
+      }
 
   function getCatalogStatDisplayNumber(item, colId) {
     if (colId === "dmgPhysical") return getMeleeDamageDesc(item).physicalDamage;
@@ -3001,6 +3047,105 @@
       }
       if (!hasStatValue) continue;
       out[colId] = keepThousandths ? 3 : keepHundredths ? 2 : keepTenths ? 1 : 0;
+    }
+    return out;
+  }
+
+  function columnUsesHideZero(colId) {
+    return colId !== "meleeTimeBetweenAttacks" && colId !== "meleeAttackRange";
+  }
+
+  function isLengthBasedStatColumn(colId) {
+    if (
+      colId === "buy" ||
+      colId === "sell" ||
+      colId === "componentSell" ||
+      colId === "profit" ||
+      colId === "icon" ||
+      colId === "display" ||
+      colId === "name" ||
+      colId === "objectType" ||
+      colId === "description" ||
+      colId === "json"
+    ) {
+      return false;
+    }
+    if (
+      colId === "dmgPhysical" ||
+      colId === "meleeTimeBetweenAttacks" ||
+      colId === "meleeAttackRange" ||
+      colId === "dmgKnockback"
+    ) {
+      return true;
+    }
+    const def = COLUMN_BY_ID[colId];
+    return !!(
+      def &&
+      (def.rtDamageKey ||
+        isClothingStatColumnDef(def) ||
+        def.placeBlockStatKey ||
+        def.grapplingHookStatKey ||
+        def.placeableSetupStatKey ||
+        isPropulsionPlaceItemStatColumnDef(def) ||
+        isEnginePlaceItemStatColumnDef(def) ||
+        isGrinderPlaceItemStatColumnDef(def) ||
+        isArtilleryShipItemStatColumnDef(def))
+    );
+  }
+
+  function isLengthBasedNumericColumn(colId) {
+    return (
+      colId === "buy" ||
+      colId === "sell" ||
+      colId === "componentSell" ||
+      colId === "profit" ||
+      isLengthBasedStatColumn(colId)
+    );
+  }
+
+  function computeStatColumnWidthsForList(list, decimalsById) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return Object.create(null);
+    const tableBodyEl = document.getElementById("table-body");
+    const bodyStyles = getComputedStyle(tableBodyEl || document.body);
+    const font = bodyStyles.font || "14px system-ui";
+    ctx.font = font;
+
+    const out = Object.create(null);
+    const cols = visibleColumns();
+    for (let c = 0; c < cols.length; c++) {
+      const colId = cols[c].id;
+      if (!isLengthBasedNumericColumn(colId)) continue;
+      const decimals = Object.prototype.hasOwnProperty.call(decimalsById, colId)
+        ? decimalsById[colId]
+        : 3;
+      const hideZero = columnUsesHideZero(colId);
+      let maxTextPx = 0;
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        let txt = "";
+        if (colId === "buy" || colId === "sell") {
+          const p = prices(item);
+          const n = colId === "buy" ? p.buy : p.sell;
+          txt = n != null ? formatPriceWithSpaces(n) : "—";
+        } else if (colId === "componentSell") {
+          const n = componentSellPrice(item);
+          txt = n != null ? formatPriceWithSpaces(n) : "";
+        } else if (colId === "profit") {
+          const n = profitValue(item);
+          txt = n != null ? formatPriceWithSpaces(n) : "";
+        } else {
+          const v = getCatalogStatDisplayNumber(item, colId);
+          if (v == null || typeof v !== "number" || Number.isNaN(v)) continue;
+          txt = formatCatalogStatNumber(v, { hideZero: hideZero, decimals: decimals });
+        }
+        if (!txt) continue;
+        const textPx = ctx.measureText(txt).width;
+        if (textPx > maxTextPx) maxTextPx = textPx;
+      }
+      // Add horizontal cell padding + border allowance, then clamp for stability.
+      out[colId] = Math.max(40, Math.min(96, Math.ceil(maxTextPx)));
     }
     return out;
   }
@@ -3081,6 +3226,18 @@
     const thead = document.getElementById("thead");
     thead.innerHTML = "";
     const tr = document.createElement("tr");
+    function appendDiagonalHeaderLabel(th, text) {
+      const wrap = document.createElement("span");
+      wrap.className = "num-diagonal-wrap";
+      const label = document.createElement("span");
+      label.className = "num-diagonal-label";
+      const labelText = document.createElement("span");
+      labelText.className = "num-diagonal-label-text";
+      labelText.textContent = text;
+      label.appendChild(labelText);
+      wrap.appendChild(label);
+      th.appendChild(wrap);
+    }
 
     const cols = visibleColumns();
     for (let c = 0; c < cols.length; c++) {
@@ -3092,8 +3249,12 @@
         th.className = "col-icon";
         th.textContent = col.label;
       } else if (!col.sortable) {
+        if (col.id === "json") {
+          th.className = "col-json num-diagonal";
+          appendDiagonalHeaderLabel(th, col.label);
+        } else {
         th.textContent = col.label;
-        if (col.id === "json") th.className = "col-json";
+        }
       } else {
         let cls =
           col.rtDamageKey ||
@@ -3110,7 +3271,7 @@
             ? "sortable col-melee-dmg"
             : "sortable";
         const isNum = col.type === "number";
-        const isDiagonalNum = isNum && col.id !== "buy" && col.id !== "sell";
+        const isDiagonalNum = isNum;
         if (isNum) cls += " num";
         if (isDiagonalNum) cls += " num-diagonal";
         th.className = cls;
@@ -3121,15 +3282,9 @@
           active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
         );
         if (isDiagonalNum) {
-          const wrap = document.createElement("span");
-          wrap.className = "num-label-wrap";
-          const label = document.createElement("span");
-          label.className = "num-label";
-          label.textContent = col.label;
-          wrap.appendChild(label);
-          th.appendChild(wrap);
+          appendDiagonalHeaderLabel(th, col.label);
         } else {
-          th.appendChild(document.createTextNode(col.label));
+        th.appendChild(document.createTextNode(col.label));
         }
         const hint = document.createElement("span");
         hint.className = "sort-hint";
@@ -3149,9 +3304,9 @@
     }
 
     const url = iconUrlFor(item);
-    const img = document.createElement("img");
-    img.loading = "lazy";
-    const tk = tintCacheKey(url, item);
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      const tk = tintCacheKey(url, item);
     const hadTintCache = Boolean(tk && tintedIconDataUrlCache.get(tk));
     wireCatalogItemIcon(img, item, url, {
       onLoadError() {
@@ -3159,11 +3314,11 @@
       },
     });
     liveIconNodeByItemName.set(item.name, img);
-    td.appendChild(img);
+          td.appendChild(img);
     if (hadTintCache) {
       bindRecipeHover(img, item);
-      return;
-    }
+          return;
+        }
     const iconNode = td.querySelector(".item-icon");
     if (iconNode) {
       bindRecipeHover(iconNode, item);
@@ -3594,12 +3749,18 @@
     if (sortDefRt && sortDefRt.rtDamageKey && !showRangedThrowableStatColumns()) {
       sortColumn = "display";
     }
+    if (sortColumn === "rtChemicalDamage" && !showRtChemicalDamageColumn()) {
+      sortColumn = "display";
+    }
     const sortDefCloth = COLUMN_BY_ID[sortColumn];
     if (sortDefCloth && isClothingStatColumnDef(sortDefCloth) && !showClothingStatColumns()) {
       sortColumn = "display";
     }
     const sortDefPb = COLUMN_BY_ID[sortColumn];
     if (sortDefPb && isPlaceBlockStatColumnDef(sortDefPb) && !showPlaceBlockStatColumns()) {
+      sortColumn = "display";
+    }
+    if (sortColumn === "pbImpactDmgMult" && !showPlaceBlockImpactColumn()) {
       sortColumn = "display";
     }
     const sortDefGh = COLUMN_BY_ID[sortColumn];
@@ -3612,6 +3773,9 @@
       isPlaceableSetupStatColumnDef(sortDefPl) &&
       !showPlaceableSetupStatColumns()
     ) {
+      sortColumn = "display";
+    }
+    if (sortColumn === "plBuoyancy" && !showPlaceableBuoyancyColumn()) {
       sortColumn = "display";
     }
     const sortDefPpo = COLUMN_BY_ID[sortColumn];
@@ -3650,12 +3814,13 @@
     list.sort(compareItems);
     const t2 = profile ? performance.now() : 0;
 
+    statColumnDecimalsById = computeStatColumnDecimalsForList(list);
+    statColumnWidthPxById = computeStatColumnWidthsForList(list, statColumnDecimalsById);
     buildColgroup();
     buildThead();
     const t3 = profile ? performance.now() : 0;
 
     virtualList = list;
-    statColumnDecimalsById = computeStatColumnDecimalsForList(list);
     rowHeights = null;
     prefixHeights = null;
     virtualHeightsDirty = true;
@@ -3988,7 +4153,7 @@
     recipeTooltipEl = document.getElementById("recipe-tooltip");
     ensureRecipeTooltipGlobalWatchers();
 
-    blockTypes = {};
+        blockTypes = {};
     if (
       blocksPayload &&
       blocksPayload.blockTypes &&
