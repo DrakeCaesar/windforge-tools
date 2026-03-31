@@ -1133,8 +1133,9 @@
   let recipeTooltipEl = null;
 
   function canvasToDataUrlFromImage(img) {
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
+    // Accept HTMLImageElement, HTMLCanvasElement, and other drawImage-compatible sources.
+    const w = img && (img.naturalWidth || img.width);
+    const h = img && (img.naturalHeight || img.height);
     if (!w || !h) return null;
     const c = document.createElement("canvas");
     c.width = w;
@@ -1199,14 +1200,9 @@
               reject(e);
               return;
             }
-            const img = new Image();
-            img.onload = function () {
-              resolve(img);
-            };
-            img.onerror = function () {
-              reject(new Error("sprite decode"));
-            };
-            img.src = c.toDataURL("image/png");
+            // Return the sliced canvas directly.
+            // This avoids creating/decoding a data: URL per sprite (which causes the gaps you’re seeing).
+            resolve(c);
           },
           reject
         );
@@ -1768,8 +1764,8 @@
 
   /** Full-colour pickup: circular mean hue of palette colours, pixel saturation halved. */
   function applyHuePaletteRemap(img, primaryRgb, secondaryRgb) {
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
+    const w = img && (img.naturalWidth || img.width);
+    const h = img && (img.naturalHeight || img.height);
     if (!w || !h) return null;
     const canvas = document.createElement("canvas");
     canvas.width = w;
@@ -1873,8 +1869,8 @@
   }
 
   function applyEquipmentMaskTint(img, primaryRgb, secondaryRgb) {
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
+    const w = img && (img.naturalWidth || img.width);
+    const h = img && (img.naturalHeight || img.height);
     if (!w || !h) return null;
     const canvas = document.createElement("canvas");
     canvas.width = w;
