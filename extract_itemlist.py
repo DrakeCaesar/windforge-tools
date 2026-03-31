@@ -662,10 +662,19 @@ def main() -> int:
         payload["iconAtlas"] = icon_atlas_payload
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    # Minify to reduce size; optionally also emit a gzipped variant for faster transfer.
+    out_json_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    out_path.write_text(out_json_text, encoding="utf-8")
 
-    print(f"Wrote {out_path}")
+    # Write `itemlist.json.gz` alongside `itemlist.json` so the browser can load fewer bytes.
+    try:
+        import gzip
+
+        gz_path = out_path.with_name(out_path.name + ".gz")
+        gz_path.write_bytes(gzip.compress(out_json_text.encode("utf-8"), compresslevel=9))
+        print(f"Wrote {out_path} and {gz_path} (gzip).")
+    except Exception:
+        print(f"Wrote {out_path}")
 
     try:
         blocks_source_rel = (
@@ -679,10 +688,20 @@ def main() -> int:
         "blockTypeCount": len(block_types),
         "blockTypes": block_types,
     }
-    with blocks_out_path.open("w", encoding="utf-8") as f:
-        json.dump(blocks_payload, f, ensure_ascii=False, indent=2)
+    blocks_json_text = json.dumps(
+        blocks_payload, ensure_ascii=False, separators=(",", ":")
+    )
+    blocks_out_path.write_text(blocks_json_text, encoding="utf-8")
+    try:
+        import gzip
 
-    print(f"Wrote {blocks_out_path}")
+        gz_blocks_path = blocks_out_path.with_name(blocks_out_path.name + ".gz")
+        gz_blocks_path.write_bytes(
+            gzip.compress(blocks_json_text.encode("utf-8"), compresslevel=9)
+        )
+        print(f"Wrote {blocks_out_path} and {gz_blocks_path} (gzip).")
+    except Exception:
+        print(f"Wrote {blocks_out_path}")
     return 0
 
 
