@@ -1295,15 +1295,60 @@
 
     // Add temporary virtual overscroll so edge rows can still align to the anchor Y.
     const desiredNoPad = rowTop + rowH * 0.5 - anchorY;
-    const maxNoPad = Math.max(0, (prefixHeights ? prefixHeights[virtualList.length] : 0) - wrap.clientHeight);
+    const contentTotal = prefixHeights ? prefixHeights[virtualList.length] : 0;
+    const maxNoPad = Math.max(0, contentTotal - wrap.clientHeight);
     virtualPadTop = Math.max(0, -desiredNoPad);
     virtualPadBottom = Math.max(0, desiredNoPad - maxNoPad);
+    // Short-list correction: ensure desired anchored scroll is reachable.
+    const desiredWithPadPre = virtualPadTop + rowTop + rowH * 0.5 - anchorY;
+    const maxWithPadPre = Math.max(
+      0,
+      virtualPadTop + virtualPadBottom + contentTotal - wrap.clientHeight
+    );
+    if (desiredWithPadPre > maxWithPadPre) {
+      virtualPadBottom += desiredWithPadPre - maxWithPadPre;
+    }
     renderVirtualBody();
 
     const desiredWithPad = virtualPadTop + rowTop + rowH * 0.5 - anchorY;
-    const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-    wrap.scrollTop = Math.max(0, Math.min(maxScroll, desiredWithPad));
+    wrap.scrollTop = Math.max(0, desiredWithPad);
     renderVirtualBody();
+    requestAnimationFrame(function () {
+      const wrapNow = getBodyScrollPort();
+      if (!wrapNow) return;
+      function alignRowCenter(attempt) {
+        const rowEl = document.querySelector("tr.v-row[data-v-index='" + String(idx) + "']");
+        if (!rowEl) return;
+        const wRect = wrapNow.getBoundingClientRect();
+        const rRect = rowEl.getBoundingClientRect();
+        const rowCenterY = rRect.top - wRect.top + rRect.height * 0.5;
+        const err = anchorY - rowCenterY;
+        if (Math.abs(err) < 1) return;
+
+        const maxNow = Math.max(0, wrapNow.scrollHeight - wrapNow.clientHeight);
+        const targetNow = Math.max(0, Math.min(maxNow, wrapNow.scrollTop - err));
+        const clamped = Math.abs(targetNow - (wrapNow.scrollTop - err)) > 0.5;
+
+        if (clamped && attempt < 2) {
+          if (err < 0) {
+            virtualPadBottom += -err;
+          } else {
+            virtualPadTop += err;
+          }
+          renderVirtualBody();
+          requestAnimationFrame(function () {
+            alignRowCenter(attempt + 1);
+          });
+          return;
+        }
+
+        if (Math.abs(wrapNow.scrollTop - targetNow) >= 1) {
+          wrapNow.scrollTop = targetNow;
+          renderVirtualBody();
+        }
+      }
+      alignRowCenter(0);
+    });
     return true;
   }
 
@@ -2320,15 +2365,6 @@
     return document.getElementById("table-body-scroll");
   }
 
-  function syncHeaderScrollbarGutter() {
-    const wrap = getBodyScrollPort();
-    const headWrap = document.querySelector(".table-head-wrap");
-    if (!wrap || !headWrap) return;
-    const sbw = Math.max(0, wrap.offsetWidth - wrap.clientWidth);
-    const hasY = wrap.scrollHeight > wrap.clientHeight + 1;
-    headWrap.style.setProperty("--table-scrollbar-gutter", (hasY ? sbw : 0) + "px");
-  }
-
   /**
    * @param {{ objectType?: string } | null} [restored] — from localStorage; preferred value for &lt;select&gt; after rebuild
    */
@@ -3029,7 +3065,6 @@
       td.style.padding = "1.25rem";
       tr.appendChild(td);
       tbody.appendChild(tr);
-      syncHeaderScrollbarGutter();
       return;
     }
 
@@ -3097,7 +3132,6 @@
       frag.appendChild(spacerRow(virtualPadBottom));
     }
     tbody.appendChild(frag);
-    syncHeaderScrollbarGutter();
 
     const scrollTopForRender = st;
     requestAnimationFrame(function () {
@@ -3126,7 +3160,6 @@
           renderVirtualBody();
         }
       }
-      syncHeaderScrollbarGutter();
     });
   }
 

@@ -29,6 +29,7 @@
   --surface-hover: color-mix(in srgb, var(--text) 8%, transparent);
   --shadow-pop: color-mix(in srgb, var(--bg) 50%, transparent);
   --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
+  --table-scrollbar-gutter-fixed: 10px;
 }
 
 * {
@@ -518,8 +519,8 @@ main {
   content: "";
   position: absolute;
   top: 0;
-  right: calc(-1 * var(--table-scrollbar-gutter, 0px));
-  width: var(--table-scrollbar-gutter, 0px);
+  right: calc(-1 * var(--table-scrollbar-gutter-fixed));
+  width: var(--table-scrollbar-gutter-fixed);
   height: calc(100% + 1px);
   background: var(--thead-bg);
   box-shadow: inset 0 -1px 0 var(--border);
@@ -531,9 +532,9 @@ main {
   min-height: 0;
   max-height: 100%;
   overflow-x: hidden;
-  overflow-y: auto;
-  /* Do not reserve a permanent gutter column; show scrollbar space only when needed. */
-  scrollbar-gutter: auto;
+  overflow-y: scroll;
+  /* Always reserve gutter width so layout/header alignment stays constant. */
+  scrollbar-gutter: stable;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
