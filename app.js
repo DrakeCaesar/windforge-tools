@@ -768,6 +768,7 @@
   let virtualScrollAttached = false;
   let virtualResizeAttached = false;
   let virtualResizeTimer = null;
+  let virtualDocumentWheelAttached = false;
   let wheelNotchAccumPx = 0;
 
   /** Pre-unification column ids → shared `plMass` / `plBuoyancy` / `plHitPoints` (localStorage migration). */
@@ -3327,6 +3328,42 @@
           }, 100);
         },
         { passive: true }
+      );
+    }
+    if (!virtualDocumentWheelAttached) {
+      virtualDocumentWheelAttached = true;
+      document.addEventListener(
+        "wheel",
+        function (e) {
+          const target = e.target;
+          if (!target || typeof target.closest !== "function") return;
+          // Tooltip custom wheel mode has priority.
+          if (
+            !recipeTooltipEl.hidden &&
+            recipeTooltipScrollArmed &&
+            (target.closest("[data-recipe-hover-bound='1']") || target.closest("#recipe-tooltip"))
+          ) {
+            return;
+          }
+          if (target.closest("#table-body-scroll")) return;
+          // Let overlay/panel/input-specific scroll behavior win.
+          if (target.closest(".object-type-dropdown__panel")) return;
+          if (target.closest("#json-dialog")) return;
+          if (target.closest("input, textarea, select, [contenteditable='true']")) return;
+
+          let dy = e.deltaY;
+          if (e.deltaMode === 1) dy *= 16;
+          else if (e.deltaMode === 2) dy *= wrap.clientHeight;
+          if (!dy) return;
+
+          const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+          const next = Math.max(0, Math.min(maxScroll, wrap.scrollTop + dy));
+          if (next === wrap.scrollTop) return;
+          e.preventDefault();
+          wrap.scrollTop = next;
+          scheduleVirtualRefresh();
+        },
+        { passive: false }
       );
     }
   }

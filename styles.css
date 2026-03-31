@@ -1,6 +1,6 @@
 :root {
   /* Virtual-scroll row height (spacers rely on this). Keep rows fixed-height. */
-  --v-row-height: 60px;
+  --v-row-height: 59px;
   /* Main content + table width cap (wider than typical prose for many columns). */
   --catalog-max-width: 2048px;
 
