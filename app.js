@@ -3268,40 +3268,23 @@
   }
 
   async function load() {
-    async function tryFetchJsonGz(url) {
-      if (typeof DecompressionStream !== "function") return null;
+    async function fetchJsonGz(url) {
+      if (typeof DecompressionStream !== "function") {
+        throw new Error("DecompressionStream unsupported (need itemlist.json.gz).");
+      }
       const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) return null;
-      if (!res.body) return null;
+      if (!res.ok) throw new Error(url + ": " + res.status);
+      if (!res.body) throw new Error(url + ": missing response body");
       const ds = new DecompressionStream("gzip");
       const stream = res.body.pipeThrough(ds);
       const text = await new Response(stream).text();
       return JSON.parse(text);
     }
 
-    let itemsPayload = null;
-    try {
-      itemsPayload = await tryFetchJsonGz("itemlist.json.gz");
-    } catch (e) {
-      /* ignore, fallback below */
-    }
-    if (!itemsPayload) {
-      const itemsRes = await fetch("itemlist.json", { cache: "no-store" });
-      if (!itemsRes.ok) throw new Error("itemlist.json: " + itemsRes.status);
-      itemsPayload = await itemsRes.json();
-    }
-
-    let blocksPayload = null;
-    try {
-      blocksPayload = await tryFetchJsonGz("sharedblockinfo.json.gz");
-    } catch (e) {
-      /* ignore, fallback below */
-    }
-    if (!blocksPayload) {
-      const blocksRes = await fetch("sharedblockinfo.json", { cache: "no-store" });
-      if (!blocksRes.ok) throw new Error("sharedblockinfo.json: " + blocksRes.status);
-      blocksPayload = await blocksRes.json();
-    }
+    const [itemsPayload, blocksPayload] = await Promise.all([
+      fetchJsonGz("itemlist.json.gz"),
+      fetchJsonGz("sharedblockinfo.json.gz"),
+    ]);
 
     data = itemsPayload;
     if (!data.ItemList) data.ItemList = [];
@@ -3320,12 +3303,12 @@
     recipeTooltipEl = document.getElementById("recipe-tooltip");
 
     blockTypes = {};
-    try {
-      if (blocksPayload && blocksPayload.blockTypes && typeof blocksPayload.blockTypes === "object") {
-        blockTypes = blocksPayload.blockTypes;
-      }
-    } catch (e) {
-      blockTypes = {};
+    if (
+      blocksPayload &&
+      blocksPayload.blockTypes &&
+      typeof blocksPayload.blockTypes === "object"
+    ) {
+      blockTypes = blocksPayload.blockTypes;
     }
     const persisted = readPersistedUI();
     if (persisted) {
