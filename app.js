@@ -719,6 +719,9 @@
    */
   const imageLoadPromises = new Map();
 
+  /** Keep one live <img> per item so virtualized row remounts don't recreate image resources. */
+  const liveIconNodeByItemName = new Map();
+
   /** Estimated row height used before we measure individual rows. */
   let ROW_HEIGHT = 60;
   const VIRTUAL_OVERSCAN = 12;
@@ -2498,6 +2501,12 @@
   }
 
   function appendIconToCell(td, item) {
+    const reused = liveIconNodeByItemName.get(item.name);
+    if (reused) {
+      td.appendChild(reused);
+      return;
+    }
+
     const url = iconUrlFor(item);
     const img = document.createElement("img");
     img.loading = "lazy";
@@ -2508,6 +2517,7 @@
         throw new Error("Icon decode failed for " + String(item && item.name) + ": " + String(url));
       },
     });
+    liveIconNodeByItemName.set(item.name, img);
     td.appendChild(img);
     if (hadTintCache) {
       bindRecipeHover(img, item);
