@@ -83,6 +83,7 @@ body {
   flex-wrap: wrap;
   gap: 12px 20px;
   align-items: center;
+  justify-content: center;
 }
 
 .controls label {
@@ -91,6 +92,8 @@ body {
   gap: 4px;
   font-size: 13px;
   color: var(--muted);
+  align-items: center;
+  text-align: center;
 }
 
 .controls label.controls-checkbox-row {
@@ -169,7 +172,8 @@ body {
 .controls .number-input-spin {
   display: inline-flex;
   align-items: stretch;
-  min-width: 224px;
+  width: 65px;
+  min-width: 65px;
   padding: 0;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -183,6 +187,7 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   padding: 4px 8px;
+  text-align: right;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -272,13 +277,15 @@ body {
 /* Custom object-type listbox (replaces native <select> open UI). */
 .object-type-dropdown {
   position: relative;
-  min-width: 256px;
-  max-width: 448px;
+  width: fit-content;
+  min-width: 0;
+  max-width: none;
 }
 
 .object-type-dropdown--compact {
-  min-width: 192px;
-  max-width: 352px;
+  width: fit-content;
+  min-width: 0;
+  max-width: none;
 }
 
 .object-type-filter-select-hidden {
@@ -441,6 +448,10 @@ body {
   font-size: 14px;
   color: var(--muted);
   align-self: center;
+  min-width: 15ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 main {

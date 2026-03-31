@@ -2457,6 +2457,34 @@
     labelEl.textContent = opt ? opt.textContent : "All object types";
   }
 
+  function sizeDropdownToLongestOption(selectId, rootId, btnId) {
+    const sel = document.getElementById(selectId);
+    const root = document.getElementById(rootId);
+    const btn = document.getElementById(btnId);
+    if (!sel || !root || !btn) return;
+    const cs = getComputedStyle(btn);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.font = cs.font;
+    let maxText = 0;
+    for (let i = 0; i < sel.options.length; i++) {
+      const t = sel.options[i].textContent || sel.options[i].value || "";
+      const w = ctx.measureText(t).width;
+      if (w > maxText) maxText = w;
+    }
+    // text + btn horizontal paddings + chevron room
+    const padLeft = parseFloat(cs.paddingLeft) || 0;
+    const padRight = parseFloat(cs.paddingRight) || 0;
+    const borderL = parseFloat(cs.borderLeftWidth) || 0;
+    const borderR = parseFloat(cs.borderRightWidth) || 0;
+    const chevron = 20;
+    const width = Math.ceil(maxText + padLeft + padRight + borderL + borderR + chevron);
+    root.style.width = width + "px";
+    root.style.minWidth = width + "px";
+    root.style.maxWidth = width + "px";
+  }
+
   function syncObjectTypeDropdownPanel() {
     const sel = document.getElementById("filter-object-type");
     const panel = document.getElementById("filter-object-type-panel");
@@ -2503,6 +2531,11 @@
     }
 
     updateObjectTypeDropdownLabel();
+    sizeDropdownToLongestOption(
+      "filter-object-type",
+      "object-type-dropdown-root",
+      "filter-object-type-btn"
+    );
   }
 
   function closeObjectTypePanel() {
@@ -2550,6 +2583,10 @@
     }
 
     function setFromDropdown(value, opts) {
+      if (sel.value === value) {
+        if (!(opts && opts.keepOpen)) closePanel({ focusButton: true });
+        return;
+      }
       sel.value = value;
       cfg.syncPanel();
       const shouldClose = !(opts && opts.keepOpen);
@@ -2674,6 +2711,11 @@
     }
 
     updateSecondarySortDropdownLabel();
+    sizeDropdownToLongestOption(
+      "secondary-sort",
+      "secondary-sort-dropdown-root",
+      "secondary-sort-btn"
+    );
   }
 
   function closeSecondarySortPanel() {
