@@ -1191,7 +1191,18 @@
     const margin = 8;
     const iconGap = -1;
     const minH = 160;
-    const anchor = anchorEl != null ? anchorEl : recipeTooltipAnchorTarget;
+    let anchor = anchorEl != null ? anchorEl : recipeTooltipAnchorTarget;
+    if (
+      (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== "function") &&
+      Number.isFinite(clientX) &&
+      Number.isFinite(clientY)
+    ) {
+      const resolved = getRecipeHoverTargetAtPoint(clientX, clientY);
+      if (resolved) {
+        anchor = resolved;
+        recipeTooltipAnchorTarget = resolved;
+      }
+    }
     const anchorRect =
       anchor &&
       anchor.isConnected &&
@@ -1211,6 +1222,17 @@
     requestAnimationFrame(function () {
       if (recipeTooltipEl.hidden) return;
       const r = recipeTooltipEl.getBoundingClientRect();
+      if (
+        (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== "function") &&
+        Number.isFinite(clientX) &&
+        Number.isFinite(clientY)
+      ) {
+        const resolved = getRecipeHoverTargetAtPoint(clientX, clientY);
+        if (resolved) {
+          anchor = resolved;
+          recipeTooltipAnchorTarget = resolved;
+        }
+      }
       const ar2 =
         anchor &&
         anchor.isConnected &&
@@ -1346,6 +1368,16 @@
 
   function getRecipeHoverTargetAtPoint(x, y) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (typeof document.elementsFromPoint === "function") {
+      const stack = document.elementsFromPoint(x, y);
+      for (let i = 0; i < stack.length; i++) {
+        const el = stack[i];
+        if (!el || typeof el.closest !== "function") continue;
+        const hit = el.closest("[data-recipe-hover-bound='1']");
+        if (hit) return hit;
+      }
+      return null;
+    }
     const el = document.elementFromPoint(x, y);
     if (!el || typeof el.closest !== "function") return null;
     return el.closest("[data-recipe-hover-bound='1']");
