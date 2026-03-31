@@ -854,7 +854,8 @@
 
   function readPersistedUI() {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const o = JSON.parse(raw);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const o = parsed && typeof parsed === "object" ? parsed : {};
     return {
       q: typeof o.q === "string" ? o.q : "",
       objectType: typeof o.objectType === "string" ? o.objectType : "",
