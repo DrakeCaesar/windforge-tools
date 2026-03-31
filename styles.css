@@ -30,6 +30,7 @@
   --shadow-pop: color-mix(in srgb, var(--bg) 50%, transparent);
   --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
   --table-scrollbar-gutter-fixed: 10px;
+  --control-h: 32px;
 }
 
 * {
@@ -101,6 +102,8 @@ body {
   align-items: center;
   gap: 7px;
   align-self: center;
+  min-height: 16px;
+  line-height: 16px;
   cursor: pointer;
   user-select: none;
   color: var(--text);
@@ -151,17 +154,21 @@ body {
   align-self: flex-start;
   justify-content: flex-start;
   width: 100%;
+  min-height: 16px;
+  line-height: 16px;
 }
 
 .controls input[type="search"],
 .controls select:not(.object-type-filter-select-hidden) {
   min-width: 224px;
-  padding: 4px 8px;
+  height: var(--control-h);
+  padding: 0 8px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
   font-size: 14px;
+  line-height: 1;
 }
 
 .controls input[type="search"] {
@@ -174,6 +181,7 @@ body {
   align-items: stretch;
   width: 65px;
   min-width: 65px;
+  height: var(--control-h);
   padding: 0;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -186,14 +194,15 @@ body {
 .controls .number-input-spin input[type="number"] {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 4px 8px;
+  height: 100%;
+  padding: 0 8px;
   text-align: right;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text);
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1;
   appearance: textfield;
   -moz-appearance: textfield;
 }
@@ -226,6 +235,7 @@ body {
   border-radius: 0;
   background: var(--scrollbar-track);
   cursor: pointer;
+  line-height: 1;
 }
 
 /* Same triangle technique as `.object-type-dropdown__btn::after` (border chevrons). */
@@ -309,13 +319,14 @@ body {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 4px 28px 4px 8px;
+  height: var(--control-h);
+  padding: 0 28px 0 8px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1;
   text-align: left;
   cursor: pointer;
 }
@@ -582,7 +593,8 @@ main {
 .wiki-table {
   width: auto;
   table-layout: fixed;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
   /* Outer edge comes from perimeter `th`/`td` borders only (avoids doubling with `.table-wrap`). */
   border: none;
@@ -595,7 +607,8 @@ main {
   font-weight: 600;
   text-align: left;
   padding: 7px 9px;
-  border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   white-space: nowrap;
   vertical-align: middle;
   overflow: hidden;
@@ -735,7 +748,8 @@ main {
 .wiki-table tbody td {
   min-width: 0;
   padding: 4px 4px;
-  border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   vertical-align: middle;
   overflow: hidden;
 }

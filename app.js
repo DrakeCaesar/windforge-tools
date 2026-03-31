@@ -748,7 +748,7 @@
   }
 
   /** Estimated row height used before we measure individual rows. */
-  let ROW_HEIGHT = 60;
+  let ROW_HEIGHT = 59;
   const VIRTUAL_OVERSCAN = 12;
   let rowHeightSynced = false;
 
@@ -768,6 +768,7 @@
   let virtualScrollAttached = false;
   let virtualResizeAttached = false;
   let virtualResizeTimer = null;
+  let wheelNotchAccumPx = 0;
 
   /** Pre-unification column ids → shared `plMass` / `plBuoyancy` / `plHitPoints` (localStorage migration). */
   const LEGACY_PLACEABLE_SETUP_SORT_COLUMN = {
@@ -3253,26 +3254,48 @@
       wrap.addEventListener(
         "wheel",
         function (e) {
-          if (virtualPadTop <= 0 && virtualPadBottom <= 0) return;
           let dy = e.deltaY;
           if (e.deltaMode === 1) dy *= 16;
           else if (e.deltaMode === 2) dy *= wrap.clientHeight;
-          if (dy === 0) return;
+          if (!dy) return;
+
+          // Mouse wheel notch mode: one item per notch. Keep trackpad/native smooth scrolling.
+          const looksLikeWheelNotch = e.deltaMode === 1 || Math.abs(e.deltaY) >= 40;
+          if (!looksLikeWheelNotch && virtualPadTop <= 0 && virtualPadBottom <= 0) return;
+
           let remain = dy;
-          if (dy > 0 && virtualPadTop > 0) {
-            const used = Math.min(virtualPadTop, dy);
+          if (looksLikeWheelNotch) {
+            const WHEEL_NOTCH_PX = 100;
+            wheelNotchAccumPx += dy;
+            const steps = wheelNotchAccumPx > 0
+              ? Math.floor(wheelNotchAccumPx / WHEEL_NOTCH_PX)
+              : Math.ceil(wheelNotchAccumPx / WHEEL_NOTCH_PX);
+            if (steps === 0) {
+              e.preventDefault();
+              return;
+            }
+            wheelNotchAccumPx -= steps * WHEEL_NOTCH_PX;
+            remain = steps * ROW_HEIGHT;
+          }
+
+          const before = remain;
+          if (remain > 0 && virtualPadTop > 0) {
+            const used = Math.min(virtualPadTop, remain);
             virtualPadTop -= used;
             remain -= used;
-          } else if (dy < 0 && virtualPadBottom > 0) {
-            const used = Math.min(virtualPadBottom, -dy);
+          } else if (remain < 0 && virtualPadBottom > 0) {
+            const used = Math.min(virtualPadBottom, -remain);
             virtualPadBottom -= used;
             remain += used;
           }
           if (virtualPadTop < 1) virtualPadTop = 0;
           if (virtualPadBottom < 1) virtualPadBottom = 0;
-          if (remain !== dy) {
+          if (remain !== before || looksLikeWheelNotch) {
             e.preventDefault();
-            wrap.scrollTop = Math.max(0, wrap.scrollTop + remain);
+            if (remain !== 0) {
+              const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+              wrap.scrollTop = Math.max(0, Math.min(maxScroll, wrap.scrollTop + remain));
+            }
             scheduleVirtualRefresh();
           }
         },
