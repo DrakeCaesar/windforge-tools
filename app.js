@@ -913,6 +913,7 @@
 
   const SEARCH_DEBOUNCE_MS = 200;
   let searchDebounceTimer = null;
+  let wisdomRenderRaf = null;
 
   function scheduleRenderFromSearch() {
     if (searchDebounceTimer != null) clearTimeout(searchDebounceTimer);
@@ -920,6 +921,14 @@
       searchDebounceTimer = null;
       render();
     }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function scheduleRenderFromWisdom() {
+    if (wisdomRenderRaf != null) cancelAnimationFrame(wisdomRenderRaf);
+    wisdomRenderRaf = requestAnimationFrame(function () {
+      wisdomRenderRaf = null;
+      render();
+    });
   }
 
   function normalizeIconPath(luaPath) {
@@ -3064,17 +3073,19 @@
   if (wisdomEl) {
     wisdomEl.addEventListener("input", function () {
       syncWisdomFromInput();
-      render();
+      scheduleRenderFromWisdom();
     });
     wisdomEl.addEventListener("change", function () {
       syncWisdomFromInput();
-      render();
+      scheduleRenderFromWisdom();
     });
   }
 
   function initWisdomSpinButtons() {
     const input = document.getElementById("wisdom-stat");
+    if (!input) return;
     const wrap = input && input.closest(".number-input-spin");
+    if (!wrap) return;
     const up = wrap.querySelector(".number-input-spin__btn--up");
     const down = wrap.querySelector(".number-input-spin__btn--down");
     function stepVal() {
@@ -3096,10 +3107,107 @@
       const clamped = Math.min(maxVal(), Math.max(minVal(), snapped));
       input.value = String(clamped);
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    if (up) up.addEventListener("click", function () { bump(1); });
-    if (down) down.addEventListener("click", function () { bump(-1); });
+    function wireSpinHold(btn, delta) {
+      let holdStartTimer = null;
+      let holdRepeatTimer = null;
+
+      function stopHold() {
+        if (holdStartTimer != null) {
+          clearTimeout(holdStartTimer);
+          holdStartTimer = null;
+        }
+        if (holdRepeatTimer != null) {
+          clearInterval(holdRepeatTimer);
+          holdRepeatTimer = null;
+        }
+      }
+
+      function startHold() {
+        bump(delta);
+        holdStartTimer = setTimeout(function () {
+          holdStartTimer = null;
+          holdRepeatTimer = setInterval(function () {
+            bump(delta);
+          }, 60);
+        }, 300);
+      }
+
+      btn.addEventListener("mousedown", function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stopHold();
+        startHold();
+      });
+
+      window.addEventListener("mouseup", stopHold);
+      btn.addEventListener("mouseleave", stopHold);
+      btn.addEventListener("blur", stopHold);
+      btn.addEventListener("dragstart", function (e) {
+        e.preventDefault();
+      });
+
+      // Keep keyboard/assistive activation working (detail===0), while mouse path uses mousedown hold.
+      btn.addEventListener("click", function (e) {
+        if (e.detail !== 0) {
+          e.preventDefault();
+          return;
+        }
+        bump(delta);
+      });
+    }
+
+    if (up) wireSpinHold(up, 1);
+    if (down) wireSpinHold(down, -1);
+
+    let keyHoldStartTimer = null;
+    let keyHoldRepeatTimer = null;
+    let keyHoldDelta = 0;
+
+    function stopKeyHold() {
+      keyHoldDelta = 0;
+      if (keyHoldStartTimer != null) {
+        clearTimeout(keyHoldStartTimer);
+        keyHoldStartTimer = null;
+      }
+      if (keyHoldRepeatTimer != null) {
+        clearInterval(keyHoldRepeatTimer);
+        keyHoldRepeatTimer = null;
+      }
+    }
+
+    function startKeyHold(delta) {
+      keyHoldDelta = delta;
+      bump(delta);
+      keyHoldStartTimer = setTimeout(function () {
+        keyHoldStartTimer = null;
+        keyHoldRepeatTimer = setInterval(function () {
+          bump(delta);
+        }, 60);
+      }, 300);
+    }
+
+    input.addEventListener("keydown", function (e) {
+      let delta = 0;
+      if (e.key === "ArrowUp") delta = 1;
+      if (e.key === "ArrowDown") delta = -1;
+      if (!delta) return;
+      e.preventDefault();
+      if (
+        keyHoldDelta === delta &&
+        (keyHoldStartTimer != null || keyHoldRepeatTimer != null)
+      ) {
+        return;
+      }
+      stopKeyHold();
+      startKeyHold(delta);
+    });
+
+    input.addEventListener("keyup", function (e) {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      stopKeyHold();
+    });
+    input.addEventListener("blur", stopKeyHold);
   }
   initWisdomSpinButtons();
 
