@@ -927,7 +927,18 @@
     if (wisdomRenderRaf != null) cancelAnimationFrame(wisdomRenderRaf);
     wisdomRenderRaf = requestAnimationFrame(function () {
       wisdomRenderRaf = null;
-      render();
+      const needsResort =
+        sortColumn === "buy" ||
+        sortColumn === "sell" ||
+        sortColumn === "componentSell" ||
+        sortColumn === "profit";
+      if (needsResort) {
+        render();
+      } else {
+        // Wisdom only changes price-derived cells; keep current order and just repaint visible rows.
+        renderVirtualBody();
+        schedulePersistUI();
+      }
     });
   }
 
