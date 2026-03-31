@@ -1211,6 +1211,12 @@
     });
   }
 
+  function hideRecipeTooltip() {
+    recipeTooltipEl.hidden = true;
+    recipeTooltipEl.innerHTML = "";
+    recipeTooltipEl.scrollTop = 0;
+  }
+
   function attachRecipeTooltipIcon(iconWrap, item, dataUrl) {
     if (!dataUrl) {
       iconWrap.textContent = "—";
@@ -1442,8 +1448,7 @@
     targetEl.addEventListener(
       "mouseleave",
       function () {
-        recipeTooltipEl.hidden = true;
-        recipeTooltipEl.innerHTML = "";
+        hideRecipeTooltip();
       },
       { passive: true }
     );
@@ -1452,11 +1457,41 @@
       "wheel",
       function (e) {
         if (recipeTooltipEl.hidden) return;
-        recipeTooltipEl.scrollTop += e.deltaY;
+        const dy = e.deltaY;
+        const maxScroll = recipeTooltipEl.scrollHeight - recipeTooltipEl.clientHeight;
+        if (maxScroll <= 0) return; // Tooltip fits: let wheel scroll the table.
+        const cur = recipeTooltipEl.scrollTop;
+        const next = Math.max(0, Math.min(maxScroll, cur + dy));
+        if (next === cur) return; // At tooltip boundary: let wheel continue to table.
+        recipeTooltipEl.scrollTop = next;
         e.preventDefault();
         e.stopPropagation();
       },
       { passive: false }
+    );
+  }
+
+  let recipeTooltipGlobalWatchersAttached = false;
+
+  function ensureRecipeTooltipGlobalWatchers() {
+    if (recipeTooltipGlobalWatchersAttached) return;
+    recipeTooltipGlobalWatchersAttached = true;
+
+    document.addEventListener(
+      "mousemove",
+      function (e) {
+        if (recipeTooltipEl.hidden) return;
+        const t = e.target;
+        if (
+          t &&
+          typeof t.closest === "function" &&
+          t.closest("[data-recipe-hover-bound='1']")
+        ) {
+          return;
+        }
+        hideRecipeTooltip();
+      },
+      { passive: true }
     );
   }
 
@@ -2910,6 +2945,13 @@
     if (!virtualScrollAttached) {
       virtualScrollAttached = true;
       wrap.addEventListener("scroll", scheduleVirtualRefresh, { passive: true });
+      wrap.addEventListener(
+        "scroll",
+        function () {
+          if (!recipeTooltipEl.hidden) hideRecipeTooltip();
+        },
+        { passive: true }
+      );
     }
     if (!virtualResizeAttached) {
       virtualResizeAttached = true;
@@ -3345,6 +3387,7 @@
     }
 
     recipeTooltipEl = document.getElementById("recipe-tooltip");
+    ensureRecipeTooltipGlobalWatchers();
 
     blockTypes = {};
     if (
