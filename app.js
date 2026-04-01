@@ -14,6 +14,7 @@
 
   /** @type {{ ItemList: object[], iconMap: Record<string,string>, iconAtlas?: { image: string, sprites: Record<string, { x: number, y: number, w: number, h: number }> }, itemCount?: number, source?: string, recipesByProduct?: Record<string, object[]>, recipesByIngredient?: Record<string, object[]>, recipeSource?: string }} */
   let data = { ItemList: [], iconMap: {}, recipesByProduct: {}, recipesByIngredient: {} };
+  let recipeSortEngine = window.createRecipeSortEngine();
 
   /** Internal item name → item row (for ingredient icons). */
   const itemByName = new Map();
@@ -2006,38 +2007,6 @@
     );
   }
 
-  function compareByRecipeBaseThenName(nameA, nameB) {
-    function recipeBaseForName(n) {
-      const recs = data.recipesByProduct && data.recipesByProduct[n];
-      if (Array.isArray(recs) && recs.length > 0) {
-        // If multiple recipe sets exist, use the lexicographically first stable key.
-        let best = "";
-        for (let i = 0; i < recs.length; i++) {
-          const b = String((recs[i] && recs[i].recipeSetBaseName) || "");
-          if (!b) continue;
-          if (!best || b.localeCompare(best, undefined, { sensitivity: "base", numeric: true }) < 0) {
-            best = b;
-          }
-        }
-        if (best) return best;
-      }
-      // Fallback for non-craft or missing recipe metadata.
-      return getCraftTierInfo(n).base || n || "";
-    }
-
-    const ba = recipeBaseForName(nameA);
-    const bb = recipeBaseForName(nameB);
-    const baseCmp = ba.localeCompare(bb, undefined, {
-      sensitivity: "base",
-      numeric: true,
-    });
-    if (baseCmp !== 0) return baseCmp;
-    return (nameA || "").localeCompare(nameB || "", undefined, {
-      sensitivity: "base",
-      numeric: true,
-    });
-  }
-
   /** Display names are usually space-separated; single-token strings use camelCase split (e.g. fallback to internal name). */
   function wordsForDisplaySuffixSort(item) {
     const s = displayName(item);
@@ -3212,7 +3181,7 @@
       let c;
       if (secondarySortMode === SECONDARY_SORT_RECIPE_BASE) {
         if (col === "name") {
-          c = compareByRecipeBaseThenName(a.name || "", b.name || "");
+          c = recipeSortEngine.compareByRecipeBaseThenName(a.name || "", b.name || "");
         } else {
           const sa = String(va ?? "");
           const sb = String(vb ?? "");
@@ -3230,7 +3199,7 @@
       secondarySortMode === SECONDARY_SORT_RECIPE_BASE &&
       col !== "name"
     ) {
-      return compareByRecipeBaseThenName(a.name || "", b.name || "");
+      return recipeSortEngine.compareByRecipeBaseThenName(a.name || "", b.name || "");
     }
     return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true });
   }
@@ -3893,6 +3862,7 @@
     }
     renderVirtualBody();
     ensureVirtualScrollListeners();
+    recipeSortEngine.validateRecipeSortTokenCoverage(new Set(list.map(function (it) { return String(it && it.name || ""); })));
     const t4 = profile ? performance.now() : 0;
 
     schedulePersistUI();
@@ -4200,13 +4170,14 @@
     // Strict: required keys must exist in the payload.
 
     itemByName.clear();
+    recipeSortEngine.setData(itemsPayload);
+    recipeSortEngine.clearCache();
     for (let i = 0; i < data.ItemList.length; i++) {
       const it = data.ItemList[i];
       if (it && typeof it.name === "string" && it.name) {
         itemByName.set(it.name, it);
       }
     }
-
     recipeTooltipEl = document.getElementById("recipe-tooltip");
     ensureRecipeTooltipGlobalWatchers();
 
