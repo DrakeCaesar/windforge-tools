@@ -1010,6 +1010,8 @@
   /** Paratrooper red torso clothing: icon Torso_Paratrooper.dds + (IconRed1/IconRed2). */
   function itemIsParatrooperRedClothing(item) {
     const inv = item.inventorySetupInfo;
+    const name = String((item && item.name) || "").toUpperCase();
+    if (name.includes("SOC")) return false;
     const raw = inv.inventoryIconFile;
     const base = normalizeIconPath(raw).split("/").pop();
     if (base.toLowerCase() !== "torso_paratrooper.dds") return false;
