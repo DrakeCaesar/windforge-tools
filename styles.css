@@ -833,6 +833,12 @@ main {
 /* Diagonal headers: `.sortable` padding-right would shrink the cell and offset the skew overlay — keep full column box. */
 .wiki-table thead th.num-diagonal.sortable {
   padding: 0;
+  pointer-events: none;
+}
+
+.wiki-table thead th.num-diagonal.sortable .num-diagonal-label,
+.wiki-table thead th.num-diagonal.sortable .sort-hint {
+  pointer-events: auto;
 }
 
 /* Normal sortable headers: ◇ left, title beside it; group pinned to bottom of cell (`<th>` stays `table-cell`). */
