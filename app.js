@@ -790,7 +790,6 @@
   let virtualResizeAttached = false;
   let virtualResizeTimer = null;
   let virtualDocumentWheelAttached = false;
-  let wheelNotchAccumPx = 0;
 
   /** Pre-unification column ids → shared `plMass` / `plBuoyancy` / `plHitPoints` (localStorage migration). */
   const LEGACY_PLACEABLE_SETUP_SORT_COLUMN = {
@@ -1885,6 +1884,8 @@
     document.addEventListener(
       "wheel",
       function (e) {
+        // Preserve browser/page zoom gestures (Ctrl/Cmd + wheel).
+        if (e.ctrlKey || e.metaKey) return;
         if (recipeTooltipEl.hidden) return;
         const t = e.target;
         if (!t || typeof t.closest !== "function") return;
@@ -1895,12 +1896,22 @@
         } else if (!onTooltip) {
           return;
         }
-        e.preventDefault();
-        const dy = e.deltaY;
+        let dy = e.deltaY;
+        if (e.deltaMode === 1) dy *= 16;
+        else if (e.deltaMode === 2) dy *= recipeTooltipEl.clientHeight;
+        if (!dy) return;
         const maxScroll = recipeTooltipEl.scrollHeight - recipeTooltipEl.clientHeight;
-        if (maxScroll <= 0) return;
+        if (maxScroll <= 0) {
+          if (onTooltip) e.preventDefault();
+          return;
+        }
         const cur = recipeTooltipEl.scrollTop;
         const next = Math.max(0, Math.min(maxScroll, cur + dy));
+        if (next === cur) {
+          if (onTooltip) e.preventDefault();
+          return;
+        }
+        e.preventDefault();
         recipeTooltipEl.scrollTop = next;
       },
       { passive: false }
@@ -3617,6 +3628,8 @@
       wrap.addEventListener(
         "wheel",
         function (e) {
+          // Preserve browser/page zoom gestures (Ctrl/Cmd + wheel).
+          if (e.ctrlKey || e.metaKey) return;
           let dy = e.deltaY;
           if (e.deltaMode === 1) dy *= 16;
           else if (e.deltaMode === 2) dy *= wrap.clientHeight;
@@ -3626,19 +3639,48 @@
           const looksLikeWheelNotch = e.deltaMode === 1 || Math.abs(e.deltaY) >= 40;
           if (!looksLikeWheelNotch && virtualPadTop <= 0 && virtualPadBottom <= 0) return;
 
+          // With variable-height rows, align wheel notches to measured row boundaries.
+          if (
+            looksLikeWheelNotch &&
+            virtualPadTop <= 0 &&
+            virtualPadBottom <= 0 &&
+            prefixHeights &&
+            rowHeights &&
+            rowHeights.length === virtualList.length &&
+            prefixHeights.length === virtualList.length + 1 &&
+            virtualList.length > 0
+          ) {
+            const dir = Math.sign(dy);
+            if (!dir) return;
+
+            const contentTotal = prefixHeights[virtualList.length];
+            const contentY = Math.max(0, Math.min(Math.max(0, contentTotal - 1), wrap.scrollTop));
+
+            // first index where prefixHeights[i] > contentY
+            let lo = 0;
+            let hi = prefixHeights.length;
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1;
+              if (prefixHeights[mid] <= contentY) lo = mid + 1;
+              else hi = mid;
+            }
+            const currentIdx = Math.max(0, Math.min(virtualList.length - 1, lo - 1));
+            const targetIdx = Math.max(0, Math.min(virtualList.length - 1, currentIdx + dir));
+            const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+            const targetScrollTop = Math.max(0, Math.min(maxScroll, prefixHeights[targetIdx]));
+            if (Math.abs(targetScrollTop - wrap.scrollTop) < 0.5) return;
+            e.preventDefault();
+            wrap.scrollTop = targetScrollTop;
+            scheduleVirtualRefresh();
+            return;
+          }
+
           let remain = dy;
           if (looksLikeWheelNotch) {
-            const WHEEL_NOTCH_PX = 100;
-            wheelNotchAccumPx += dy;
-            const steps = wheelNotchAccumPx > 0
-              ? Math.floor(wheelNotchAccumPx / WHEEL_NOTCH_PX)
-              : Math.ceil(wheelNotchAccumPx / WHEEL_NOTCH_PX);
-            if (steps === 0) {
-              e.preventDefault();
-              return;
-            }
-            wheelNotchAccumPx -= steps * WHEEL_NOTCH_PX;
-            remain = steps * ROW_HEIGHT;
+            // Deterministic notch behavior: each wheel event moves exactly one row.
+            const dir = Math.sign(dy);
+            if (!dir) return;
+            remain = dir * ROW_HEIGHT;
           }
 
           const before = remain;
@@ -3697,6 +3739,9 @@
       document.addEventListener(
         "wheel",
         function (e) {
+          // Preserve browser/page zoom gestures (Ctrl/Cmd + wheel).
+          if (e.ctrlKey || e.metaKey) return;
+          if (e.defaultPrevented) return;
           const target = e.target;
           if (!target || typeof target.closest !== "function") return;
           // Tooltip custom wheel mode has priority.
