@@ -292,12 +292,6 @@ body {
   max-width: none;
 }
 
-.object-type-dropdown--compact {
-  width: fit-content;
-  min-width: 0;
-  max-width: none;
-}
-
 .object-type-filter-select-hidden {
   position: absolute;
   width: 1px;
@@ -560,11 +554,9 @@ main {
 
 /* JSON is the last column: no diagonal “runout” to the right — anchor label from the left instead of column center. */
 .wiki-table thead th.col-json.num-diagonal .num-diagonal-label {
-  transform: rotate(-45deg);
   transform-origin: bottom left;
   transform: translateX(6px) rotate(-45deg);
   padding: 1px 1px;
-  
 }
 
 .table-body-scroll {
@@ -775,8 +767,7 @@ main {
   border-right: 1px solid var(--border);
   transform: skewX(-45deg);
   transform-origin: bottom;
-  /* Hit-test the skewed tile (not only the pre-transform `th` box). */
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 0;
 }
 
@@ -790,7 +781,7 @@ main {
   position: absolute;
   /* Pre-rotation: start of text on the column centerline; then rotate about that corner. */
   left: 50%;
-  bottom: 0px;
+  bottom: 0;
   white-space: nowrap;
   transform: translateX(14px) rotate(-45deg);
   transform-origin: bottom left;
@@ -1036,10 +1027,6 @@ main {
   margin: 0 auto;
 }
 
-.wiki-table td.col-icon > div.item-icon.missing {
-  display: inline-flex;
-  margin: 0 auto;
-}
 
 .wiki-table td.col-desc {
   vertical-align: middle;
@@ -1087,18 +1074,6 @@ main {
 
 /* Icons are exported upright by extract_itemlist.py (no CSS flip needed). */
 
-.item-icon.missing {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: var(--muted);
-  text-align: center;
-  padding: 2px;
-  word-break: break-word;
-  width: 48px;
-  height: 48px;
-}
 
 .json-open-btn {
   font: inherit;
@@ -1201,13 +1176,6 @@ main {
   background: var(--scrollbar-thumb-hover);
 }
 
-.load-error {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  max-width: 768px;
-}
 
 /* Craft / “used in” hover (recipesByProduct and/or recipesByIngredient) */
 .item-icon--recipe {
