@@ -780,6 +780,11 @@ main {
   z-index: 0;
 }
 
+/* Last header cell: outer right edge is the table frame, not the skew tile. */
+.wiki-table thead th.num-diagonal:last-child .num-diagonal-wrap::before {
+  border-right: none;
+}
+
 
 .wiki-table thead th.num-diagonal .num-diagonal-label {
   position: absolute;
