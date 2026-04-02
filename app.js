@@ -745,28 +745,6 @@
   /** Keep one live <img> per item so virtualized row remounts don't recreate image resources. */
   const liveIconNodeByItemName = new Map();
 
-  async function buildLiveIconPoolForAllItems() {
-    liveIconNodeByItemName.clear();
-    const items = data.ItemList;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const url = iconUrlFor(item);
-      const img = document.createElement("img");
-      img.alt = "";
-      img.loading = "eager";
-      img.classList.add("item-icon");
-      const dataUrl = await ensureIconDataUrlForItem(item);
-      const tint = getTintColorsForItem(item);
-      if (tint) img.classList.add("item-icon--tinted");
-      img.src = dataUrl;
-      if (typeof img.decode === "function") {
-        // Best-effort warm decode cache so re-attaching doesn't trigger a new load/decode path.
-        img.decode().catch(function () {});
-      }
-      liveIconNodeByItemName.set(item.name, img);
-    }
-  }
-
   /** Estimated row height used before we measure individual rows. */
   let ROW_HEIGHT = 59;
   const VIRTUAL_OVERSCAN = 12;
@@ -1124,10 +1102,19 @@
     return Boolean(url && (/\.png$/i.test(url) || url.indexOf("atlas:") === 0));
   }
 
-  function appendRecipeSetIconFallback(iconWrap, row) {
+  /** Loads recipe-set PNG into {@link rawIconDataUrlCache} on demand if not already decoded. */
+  async function appendRecipeSetIconFallback(iconWrap, row) {
     const url = recipeSetIconUrl(row);
     if (isRasterIconRef(url)) {
-      const cached = rawIconDataUrlCache.get(url);
+      let cached = rawIconDataUrlCache.get(url);
+      if (!cached) {
+        try {
+          await preloadRawRecipeIconUrl(url);
+          cached = rawIconDataUrlCache.get(url);
+        } catch (e) {
+          cached = null;
+        }
+      }
       if (!cached) {
         iconWrap.textContent = "—";
         return;
@@ -1732,11 +1719,11 @@
           if (dataUrl) {
             attachRecipeTooltipIcon(iconWrap, repItem, dataUrl);
           } else {
-            appendRecipeSetIconFallback(iconWrap, row);
+            await appendRecipeSetIconFallback(iconWrap, row);
           }
           iconWrap.dataset.itemName = repItem.name;
         } else {
-          appendRecipeSetIconFallback(iconWrap, row);
+          await appendRecipeSetIconFallback(iconWrap, row);
         }
         li.appendChild(iconWrap);
 
@@ -2430,9 +2417,15 @@
       });
   }
 
-  /** Decode every catalog + recipe-tooltip PNG once at startup; the table and tooltips use only memory caches. */
-  const ICON_PRELOAD_CONCURRENCY = 12;
+  /** Decode a recipe-set PNG once; cached for tooltips and any later use. */
+  async function preloadRawRecipeIconUrl(url) {
+    if (rawIconDataUrlCache.has(url)) return;
+    const loaded = await loadImageForUrl(url);
+    const raw = canvasToDataUrlFromImage(loaded);
+    rawIconDataUrlCache.set(url, raw);
+  }
 
+  /** Background: same work as old startup preload — fills {@link rawIconDataUrlCache} / {@link tintedIconDataUrlCache}. */
   function collectRecipeSetPngUrls() {
     const set = new Set();
     function scan(container) {
@@ -2451,26 +2444,66 @@
     return Array.from(set);
   }
 
-  async function preloadRawRecipeIconUrl(url) {
-    if (rawIconDataUrlCache.has(url)) return;
-    const loaded = await loadImageForUrl(url);
-    const raw = canvasToDataUrlFromImage(loaded);
-    rawIconDataUrlCache.set(url, raw);
-  }
-
   async function preloadAllIcons() {
     const items = data.ItemList;
-    for (let i = 0; i < items.length; i += ICON_PRELOAD_CONCURRENCY) {
-      const chunk = items.slice(i, i + ICON_PRELOAD_CONCURRENCY);
-      await Promise.all(
-        chunk.map(function (it) {
-          if (!it) return Promise.resolve();
-          return ensureIconDataUrlForItem(it);
-        })
-      );
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it) continue;
+      await ensureIconDataUrlForItem(it);
     }
     const recipeUrls = collectRecipeSetPngUrls();
-    await Promise.all(recipeUrls.map(preloadRawRecipeIconUrl));
+    for (let r = 0; r < recipeUrls.length; r++) {
+      await preloadRawRecipeIconUrl(recipeUrls[r]);
+    }
+  }
+
+  /**
+   * After caches are warm, add one {@code <img>} per item for virtual row reuse.
+   * Does not clear {@link liveIconNodeByItemName} — keeps icons already bound to visible rows.
+   */
+  const LIVE_POOL_YIELD_EVERY = 64;
+
+  async function buildLiveIconPoolMissing() {
+    const items = data.ItemList;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || !item.name) continue;
+      if (liveIconNodeByItemName.has(item.name)) continue;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.loading = "eager";
+      img.classList.add("item-icon");
+      const dataUrl = await ensureIconDataUrlForItem(item);
+      const tint = getTintColorsForItem(item);
+      if (tint) img.classList.add("item-icon--tinted");
+      img.src = dataUrl;
+      if (typeof img.decode === "function") {
+        img.decode().catch(function () {});
+      }
+      liveIconNodeByItemName.set(item.name, img);
+      if (i % LIVE_POOL_YIELD_EVERY === LIVE_POOL_YIELD_EVERY - 1) {
+        await new Promise(function (r) {
+          requestAnimationFrame(r);
+        });
+      }
+    }
+  }
+
+  function scheduleBackgroundIconWarmup() {
+    const run = function () {
+      void preloadAllIcons()
+        .then(function () {
+          return buildLiveIconPoolMissing();
+        })
+        .catch(function (e) {
+          console.warn("[Windforge item catalog] background icon warmup failed", e);
+        });
+    };
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 8000 });
+    } else {
+      setTimeout(run, 0);
+    }
   }
 
   function matchesQuery(item, q) {
@@ -4170,6 +4203,7 @@
     // Strict: required keys must exist in the payload.
 
     itemByName.clear();
+    liveIconNodeByItemName.clear();
     recipeSortEngine.setData(itemsPayload);
     recipeSortEngine.clearCache();
     for (let i = 0; i < data.ItemList.length; i++) {
@@ -4229,10 +4263,8 @@
       hideMastercraftTierEl.checked = true;
     }
 
-    await preloadAllIcons();
-    await buildLiveIconPoolForAllItems();
-
     render();
+    scheduleBackgroundIconWarmup();
   }
 
   load();

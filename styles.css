@@ -767,8 +767,14 @@ main {
   border-right: 1px solid var(--border);
   transform: skewX(-45deg);
   transform-origin: bottom;
+  /* Skew tile is the main visible hit target; sortable columns override to `auto`. */
   pointer-events: none;
   z-index: 0;
+}
+
+/* Sortable: skewed parallelogram must receive hover/click (idle rule above uses `none` so events missed the cell). */
+.wiki-table thead th.num-diagonal.sortable .num-diagonal-wrap::before {
+  pointer-events: auto;
 }
 
 /* Last header cell: outer right edge is the table frame, not the skew tile. */
