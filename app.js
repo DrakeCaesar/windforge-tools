@@ -3182,6 +3182,11 @@
     td.textContent = v === "" ? "" : String(v);
   }
 
+  /** Null / undefined / NaN: always sort after real numbers (asc and desc). */
+  function sortNumberMissing(v) {
+    return v == null || (typeof v === "number" && Number.isNaN(v));
+  }
+
   function getSortValue(item, colId) {
     if (colId === "display") return displayName(item).toLowerCase();
     if (colId === "name") return (item.name || "").toLowerCase();
@@ -3207,8 +3212,15 @@
     const vb = getSortValue(b, col);
 
     if (def && def.type === "number") {
-      const na = va == null ? Infinity : va;
-      const nb = vb == null ? Infinity : vb;
+      const aMiss = sortNumberMissing(va);
+      const bMiss = sortNumberMissing(vb);
+      if (aMiss || bMiss) {
+        if (aMiss && bMiss) return 0;
+        if (aMiss) return 1;
+        return -1;
+      }
+      const na = Number(va);
+      const nb = Number(vb);
       if (na !== nb) return (na - nb) * dir;
     } else {
       let c;
