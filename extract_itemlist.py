@@ -2,7 +2,10 @@
 """
 Extract ItemList from Data/objects/crafting/craftingitems.lua into `public/itemlist.json`
 (and `public/itemlist.json.gz`), including a packed PNG atlas at `public/icons-atlas.png`
-of unique inventory DDS icons (Pillow required; otherwise per-hash PNGs are copied flat into `public/`).
+of unique inventory DDS icons.
+
+Requires Python 3.10+, Pillow, and imageio (`pip install -r requirements.txt`). The script exits
+immediately with an error if anything is missing.
 
 Also extracts block stats from Data/objects/sharedblockinfo.lua into `public/sharedblockinfo.json`
 (and `.gz`) — hitPoints, mass, buoyancy, impactDamageMult per block type.
@@ -17,17 +20,52 @@ Run from anywhere: python extract_itemlist.py
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 LuaValue = Union[None, bool, int, float, str, Dict[str, Any], List[Any]]
+
+_REQ_FAIL = """\
+======================================================================
+extract_itemlist.py — requirement not satisfied
+======================================================================
+{detail}
+----------------------------------------------------------------------
+Install dependencies from the same directory as this script:
+
+  pip install -r requirements.txt
+
+(Use the same Python you use to run this script, e.g. py -3.12 -m pip …)
+======================================================================
+"""
+
+
+def _die_requirements(detail: str) -> None:
+    print(_REQ_FAIL.format(detail=detail), file=sys.stderr)
+    raise SystemExit(1)
+
+
+def check_runtime_requirements() -> None:
+    """Fail fast with a clear message if the environment cannot run the full pipeline."""
+    if sys.version_info < (3, 10):
+        _die_requirements(
+            f"This script requires Python 3.10 or newer (you have {sys.version.split()[0]})."
+        )
+    try:
+        import imageio.v3 as _imageio_v3  # noqa: F401
+    except ImportError as e:
+        _die_requirements(f'Missing package "imageio" ({e}).')
+    try:
+        import PIL.Image  # noqa: F401
+    except ImportError as e:
+        _die_requirements(f'Missing package "Pillow" ({e}).')
 
 
 class LuaParseError(ValueError):
@@ -409,41 +447,37 @@ def normalize_icon_path(lua_path: str) -> str:
     return p.lstrip("/")
 
 
-def try_dds_to_png(dds: Path, png: Path) -> bool:
-    """Convert DDS to PNG using the first method that works."""
-    png.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import imageio.v3 as iio  # type: ignore
+def try_dds_to_png(dds: Path, png: Path) -> None:
+    """Convert DDS to PNG using imageio, then Pillow. Raises RuntimeError if conversion fails."""
+    import imageio.v3 as iio
+    from PIL import Image
 
+    png.parent.mkdir(parents=True, exist_ok=True)
+    err_io: Optional[BaseException] = None
+    try:
         arr = iio.imread(dds)
         # DDS icon rows are bottom-up in this asset set.
         arr = arr[::-1, ...]
         iio.imwrite(png, arr)
-        return png.is_file()
-    except Exception:
-        pass
+        if png.is_file():
+            return
+    except BaseException as e:
+        err_io = e
     try:
-        from PIL import Image  # type: ignore
-
         im = Image.open(dds)
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
         im.save(png)
-        return png.is_file()
-    except Exception:
-        pass
-    for exe in ("magick", "convert"):
-        try:
-            subprocess.run(
-                [exe, str(dds), "-flip", str(png)],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-            if png.is_file():
-                return True
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            continue
-    return False
+        if png.is_file():
+            return
+    except Exception as e:
+        if err_io is not None:
+            raise RuntimeError(
+                f"DDS→PNG failed for {dds}\n  imageio: {err_io}\n  Pillow: {e}"
+            ) from e
+        raise RuntimeError(f"DDS→PNG failed for {dds} (Pillow): {e}") from e
+    raise RuntimeError(
+        f"DDS→PNG produced no PNG for {dds} (imageio had: {err_io!r}; Pillow wrote nothing)"
+    )
 
 
 def build_icon_map(
@@ -483,8 +517,9 @@ def build_icon_map(
             png_path = icons_out / png_name
             if not png_path.is_file():
                 try_dds_to_png(dds, png_path)
-            if png_path.is_file():
-                icon_map[norm] = png_name
+            if not png_path.is_file():
+                raise RuntimeError(f"Missing PNG after DDS conversion: {png_path} (from {dds})")
+            icon_map[norm] = png_name
         else:
             # Relative URL when HTTP server root = game_root: /Data/...
             icon_map[norm] = f"../../{norm}"
@@ -492,22 +527,112 @@ def build_icon_map(
     return icon_map
 
 
+def _shelf_alcove_pack(
+    packed_entries: List[Tuple[str, Path, int, int]], max_width: int
+) -> Tuple[Dict[str, Tuple[int, int, int, int]], int, int]:
+    """
+    Shelf rows in global order (tallest first, same as plain shelf), first sprite of each
+    row flush left. Icons to the right use extra vertical space under the row height:
+    sub-rows wrap at max_width so mid/short icons stack beside a tall leader instead of
+    leaving a dead band.
+
+    Returns (placements norm -> (x, y, w, h), atlas_width, atlas_height).
+    """
+    ordered = sorted(packed_entries, key=lambda t: -t[3])
+    placements: Dict[str, Tuple[int, int, int, int]] = {}
+    max_x_used = 0
+    i = 0
+    n = len(ordered)
+    y_base = 0
+
+    while i < n:
+        norm, _path, w, h = ordered[i]
+        px, py = 0, y_base
+        placements[norm] = (px, py, w, h)
+        max_x_used = max(max_x_used, px + w)
+        row_h = h
+        first_w = w
+        i += 1
+
+        sub_x = first_w
+        sub_y = y_base
+        sub_line_h = 0
+
+        while i < n:
+            norm, _path, w, h = ordered[i]
+            if sub_y + h > y_base + row_h:
+                break
+            if sub_x + w > max_width:
+                if sub_line_h == 0:
+                    break
+                sub_x = first_w
+                sub_y += sub_line_h
+                sub_line_h = 0
+                continue
+            placements[norm] = (sub_x, sub_y, w, h)
+            max_x_used = max(max_x_used, sub_x + w)
+            sub_x += w
+            sub_line_h = max(sub_line_h, h)
+            i += 1
+
+        y_base += row_h
+
+    return placements, max_x_used, y_base
+
+
+def _shelf_alcove_atlas_size(
+    packed_entries: List[Tuple[str, Path, int, int]], max_width: int
+) -> Tuple[int, int]:
+    """Simulate shelf+alcove packing; return (atlas_width, atlas_height)."""
+    _pl, aw, ah = _shelf_alcove_pack(packed_entries, max_width)
+    return aw, ah
+
+
+def _best_max_width_for_squareish(
+    packed_entries: List[Tuple[str, Path, int, int]],
+    w_min: int = 256,
+    w_max: int = 4096,
+    step: int = 32,
+) -> int:
+    """
+    Pick a max atlas width so the packed bbox is close to square.
+    """
+    if not packed_entries:
+        return w_max
+    max_sprite_w = max(w for _n, _p, w, _h in packed_entries)
+    lo = max(w_min, min(max_sprite_w, w_max))
+    best_mw = w_max
+    best_ratio = float("inf")
+    mw = lo
+    while mw <= w_max:
+        aw, ah = _shelf_alcove_atlas_size(packed_entries, mw)
+        if ah <= 0:
+            mw += step
+            continue
+        ratio = max(aw / ah, ah / aw)
+        if ratio < best_ratio:
+            best_ratio = ratio
+            best_mw = mw
+        mw += step
+    return best_mw
+
+
 def pack_icon_atlas(
     public_dir: Path,
     staging_dir: Path,
     icon_map: Dict[str, str],
     atlas_filename: str = "icons-atlas.png",
-    max_width: int = 4096,
+    max_width: Optional[int] = None,
 ) -> Optional[Tuple[Dict[str, str], Dict[str, Any]]]:
     """
     Pack staging_dir/*.png into public_dir/icons-atlas.png; delete staging PNGs on success.
     staging_dir: temp folder with per-hash PNGs from build_icon_map.
-    Returns (new_icon_map with values 'atlas:<norm>', iconAtlas payload) or None if packing fails.
+    If max_width is None, a width in [256, 4096] is chosen to keep the atlas bbox close to square.
+    Packing is shelf-style (tallest-first row order) with sub-rows in the band to the right of
+    each row's first icon so mixed heights do not leave a blank strip beside a tall sprite.
+    Returns (new_icon_map, iconAtlas payload) or None if there are no icon PNGs to pack.
     """
-    try:
-        from PIL import Image
-    except ImportError:
-        return None
+    from PIL import Image
 
     entries: List[Tuple[str, Path, int, int]] = []
     for norm, rel in icon_map.items():
@@ -521,31 +646,21 @@ def pack_icon_atlas(
         try:
             with Image.open(p) as im0:
                 w, h = im0.size
-        except Exception:
-            continue
+        except Exception as e:
+            raise RuntimeError(f"Cannot read icon PNG for atlas: {p}") from e
         entries.append((norm, p, w, h))
 
     if not entries:
         return None
 
-    # Shelf packing (tallest in row first within each shelf).
-    entries.sort(key=lambda t: -t[3])
-    placements: Dict[str, Tuple[int, int, int, int]] = {}
-    x = 0
-    y = 0
-    row_h = 0
-    max_x = 0
-    for norm, _path, w, h in entries:
-        if x + w > max_width:
-            x = 0
-            y += row_h
-            row_h = 0
-        placements[norm] = (x, y, w, h)
-        max_x = max(max_x, x + w)
-        row_h = max(row_h, h)
-        x += w
-    atlas_w = max_x
-    atlas_h = y + row_h
+    if max_width is None:
+        max_width = _best_max_width_for_squareish(entries)
+        aw, ah = _shelf_alcove_atlas_size(entries, max_width)
+        print(
+            f"Icon atlas: shelf max width {max_width}px -> {aw}x{ah} (~square layout)."
+        )
+
+    placements, atlas_w, atlas_h = _shelf_alcove_pack(entries, max_width)
 
     atlas = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
     sprites: Dict[str, Dict[str, int]] = {}
@@ -582,6 +697,8 @@ def pack_icon_atlas(
 
 
 def main() -> int:
+    check_runtime_requirements()
+
     script_dir = Path(__file__).resolve().parent
     public_dir = script_dir / "public"
     game_root = script_dir.parent.parent
@@ -656,13 +773,15 @@ def main() -> int:
                 f"Packed {len(icon_atlas_payload['sprites'])} sprites into public/{icon_atlas_payload['image']} "
                 "(staging PNGs removed)."
             )
-        else:
-            public_dir.mkdir(parents=True, exist_ok=True)
-            for f in staging.glob("*.png"):
-                shutil.copy2(f, public_dir / f.name)
+        elif icon_map:
             print(
-                "Atlas pack skipped (Pillow missing or no icons); copied per-hash PNGs into public/."
+                "ERROR: Icon atlas packing failed but icons were exported; "
+                "check PNG files in the staging step.",
+                file=sys.stderr,
             )
+            return 1
+        else:
+            print("No icons resolved (no DDS files matched); skipping atlas.")
 
     try:
         source_rel = str(crafting.relative_to(game_root))
@@ -688,14 +807,9 @@ def main() -> int:
     out_path.write_text(out_json_text, encoding="utf-8")
 
     # Write `itemlist.json.gz` alongside `itemlist.json` so the browser can load fewer bytes.
-    try:
-        import gzip
-
-        gz_path = out_path.with_name(out_path.name + ".gz")
-        gz_path.write_bytes(gzip.compress(out_json_text.encode("utf-8"), compresslevel=9))
-        print(f"Wrote {out_path} and {gz_path} (gzip).")
-    except Exception:
-        print(f"Wrote {out_path}")
+    gz_path = out_path.with_name(out_path.name + ".gz")
+    gz_path.write_bytes(gzip.compress(out_json_text.encode("utf-8"), compresslevel=9))
+    print(f"Wrote {out_path} and {gz_path} (gzip).")
 
     try:
         blocks_source_rel = (
@@ -713,18 +827,17 @@ def main() -> int:
         blocks_payload, ensure_ascii=False, separators=(",", ":")
     )
     blocks_out_path.write_text(blocks_json_text, encoding="utf-8")
-    try:
-        import gzip
-
-        gz_blocks_path = blocks_out_path.with_name(blocks_out_path.name + ".gz")
-        gz_blocks_path.write_bytes(
-            gzip.compress(blocks_json_text.encode("utf-8"), compresslevel=9)
-        )
-        print(f"Wrote {blocks_out_path} and {gz_blocks_path} (gzip).")
-    except Exception:
-        print(f"Wrote {blocks_out_path}")
+    gz_blocks_path = blocks_out_path.with_name(blocks_out_path.name + ".gz")
+    gz_blocks_path.write_bytes(
+        gzip.compress(blocks_json_text.encode("utf-8"), compresslevel=9)
+    )
+    print(f"Wrote {blocks_out_path} and {gz_blocks_path} (gzip).")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except RuntimeError as e:
+        print(f"\nERROR: {e}\n", file=sys.stderr)
+        raise SystemExit(1) from e

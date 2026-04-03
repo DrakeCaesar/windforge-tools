@@ -1,2 +1,3 @@
-# Optional: for --export-png-icons (DDS → PNG)
+# Required for extract_itemlist.py (script exits on startup if any are missing).
+Pillow>=10.0.0
 imageio>=2.31.0

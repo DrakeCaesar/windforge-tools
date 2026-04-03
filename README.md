@@ -31,10 +31,11 @@ All shipped catalog assets live under **`public/`**: JSON + gzip for items and b
 Regenerate everything with:
 
 ```bash
+pip install -r requirements.txt
 python extract_itemlist.py
 ```
 
-The script reads `Data/...` Lua from the **game install** (see path note at the top) and writes into `public/`.
+The script **exits immediately** if Python is older than 3.10 or if **Pillow** / **imageio** are missing, with install instructions. It reads `Data/...` Lua from the **game install** (see path note at the top) and writes into `public/`.
 
 Fetches use `import.meta.env.BASE_URL` so paths work from any deploy root. In **dev**, if `.json.gz` is missing or fails to load, the app falls back to plain `.json` in `public/`.
 
