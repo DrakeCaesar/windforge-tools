@@ -1199,6 +1199,8 @@ main {
   z-index: 10000;
   max-width: min(352px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
+  /* Avoid preserving scroll across innerHTML swaps when switching nested targets */
+  overflow-anchor: none;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 9px 10px 10px;

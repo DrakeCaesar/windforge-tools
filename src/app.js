@@ -1402,6 +1402,7 @@ function createSortCacheWorker() {
       await fillRecipeTooltip(item);
       if (token !== recipeTooltipShowToken) return;
       positionRecipeTooltip(clientX, clientY, targetEl);
+      resetRecipeFlyoutScrollAfterContentChange(recipeTooltipEl);
     })();
   }
 
@@ -1661,6 +1662,7 @@ function createSortCacheWorker() {
     layerEl.hidden = false;
     const z = targetLayerIndex === 1 ? "10001" : "10002";
     positionRecipeTooltipLayer(layerEl, clientX, clientY, anchorEl, z);
+    resetRecipeFlyoutScrollAfterContentChange(layerEl);
   }
 
   function maybeWireNestedRecipeIcon(iconWrap, subItem, parentLayerIndex) {
@@ -1718,6 +1720,25 @@ function createSortCacheWorker() {
       },
       { passive: true }
     );
+  }
+
+  /**
+   * Scroll position is reset synchronously when replacing tooltip HTML, but browsers may
+   * re-apply an old offset after layout / images (scroll anchoring). Force top after paint.
+   */
+  function resetRecipeFlyoutScrollAfterContentChange(el) {
+    if (!el) return;
+    function zero() {
+      el.scrollTop = 0;
+    }
+    zero();
+    requestAnimationFrame(function () {
+      zero();
+      requestAnimationFrame(function () {
+        zero();
+        requestAnimationFrame(zero);
+      });
+    });
   }
 
   /**
@@ -1903,6 +1924,7 @@ function createSortCacheWorker() {
       containerEl.appendChild(ulUsed);
     }
 
+    resetRecipeFlyoutScrollAfterContentChange(containerEl);
     return true;
   }
 
