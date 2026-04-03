@@ -4235,7 +4235,9 @@ function createSortCacheWorker() {
 
   document.getElementById("thead").addEventListener("click", function (e) {
     const th = e.target.closest("th[data-sort]");
+    if (!th) return;
     const id = th.dataset.sort;
+    if (!id) return;
 
     if (id === sortColumn) {
       sortDir = sortDir === "asc" ? "desc" : "asc";
