@@ -33,6 +33,17 @@ function createSortCacheWorker() {
   /** Bumped on each data load so idle sort-cache work from a previous catalog is ignored. */
   let sortCacheBuildEpoch = 0;
 
+  /**
+   * When this matches {@link computeStatsLayoutCacheKey}, column decimals/widths and colgroup
+   * are unchanged (order-independent of the filtered list); skip O(cols * n) measureText work.
+   */
+  let lastStatsLayoutCacheKey = "";
+
+  /** Reused by {@link computeStatColumnWidthsForList} to avoid allocating a canvas every render. */
+  let statsMeasureCanvas = null;
+  /** @type {CanvasRenderingContext2D|null} */
+  let statsMeasureCtx = null;
+
   /** @type {number|ReturnType<typeof setTimeout>|null} */
   let sortPermCacheIdleId = null;
 
@@ -2781,6 +2792,24 @@ function createSortCacheWorker() {
     return typeof v === "number" && !Number.isNaN(v) ? v : null;
   }
 
+  /**
+   * Order-independent fingerprint: same filtered multiset + wisdom + visible columns => same layout stats.
+   * Includes {@link sortCacheBuildEpoch} so a new catalog cannot collide with the previous load.
+   */
+  function computeStatsLayoutCacheKey(list, wisdom, colIds) {
+    let h = list.length >>> 0;
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      const n = it && typeof it.name === "string" ? it.name : "";
+      let nh = 0;
+      for (let j = 0; j < n.length; j++) nh = (nh * 31 + n.charCodeAt(j)) | 0;
+      h = (h ^ nh) >>> 0;
+    }
+    return (
+      sortCacheBuildEpoch + "\x1f" + wisdom + "\x1f" + colIds + "\x1f" + h
+    );
+  }
+
   function computeStatColumnDecimalsForList(list) {
     const out = Object.create(null);
     const cols = visibleColumns();
@@ -2859,8 +2888,11 @@ function createSortCacheWorker() {
   }
 
   function computeStatColumnWidthsForList(list, decimalsById) {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
+    if (!statsMeasureCanvas) {
+      statsMeasureCanvas = document.createElement("canvas");
+      statsMeasureCtx = statsMeasureCanvas.getContext("2d");
+    }
+    const ctx = statsMeasureCtx;
     if (!ctx) return Object.create(null);
     const tableBodyEl = document.getElementById("table-body");
     const bodyStyles = getComputedStyle(tableBodyEl || document.body);
@@ -4047,11 +4079,32 @@ function createSortCacheWorker() {
 
     const t2 = profile ? performance.now() : 0;
 
-    statColumnDecimalsById = computeStatColumnDecimalsForList(list);
-    const t2d = profile ? performance.now() : 0;
-    statColumnWidthPxById = computeStatColumnWidthsForList(list, statColumnDecimalsById);
-    const t2w = profile ? performance.now() : 0;
-    buildColgroup();
+    const visibleColIds = visibleColumns()
+      .map(function (c) {
+        return c.id;
+      })
+      .join(",");
+    const statsLayoutKey = computeStatsLayoutCacheKey(
+      list,
+      wisdomStat,
+      visibleColIds
+    );
+    let t2d;
+    let t2w;
+    if (statsLayoutKey !== lastStatsLayoutCacheKey) {
+      statColumnDecimalsById = computeStatColumnDecimalsForList(list);
+      t2d = profile ? performance.now() : 0;
+      statColumnWidthPxById = computeStatColumnWidthsForList(
+        list,
+        statColumnDecimalsById
+      );
+      t2w = profile ? performance.now() : 0;
+      buildColgroup();
+      lastStatsLayoutCacheKey = statsLayoutKey;
+    } else {
+      t2d = profile ? performance.now() : 0;
+      t2w = t2d;
+    }
     buildThead();
     const t3 = profile ? performance.now() : 0;
 
