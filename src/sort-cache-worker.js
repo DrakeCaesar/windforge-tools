@@ -13,10 +13,14 @@ const workerState = {
 
 function initWorkerPayload(payload) {
   workerState.data.ItemList = (payload && payload.ItemList) || [];
-  workerState.data.recipesByProduct = (payload && payload.recipesByProduct) || {};
-  workerState.data.recipesByIngredient = (payload && payload.recipesByIngredient) || {};
+  workerState.data.recipesByProduct =
+    (payload && payload.recipesByProduct) || {};
+  workerState.data.recipesByIngredient =
+    (payload && payload.recipesByIngredient) || {};
   workerState.blockTypes =
-    payload && payload.blockTypes && typeof payload.blockTypes === "object" ? payload.blockTypes : {};
+    payload && payload.blockTypes && typeof payload.blockTypes === "object"
+      ? payload.blockTypes
+      : {};
   workerState.itemByName.clear();
   const items = workerState.data.ItemList;
   for (let i = 0; i < items.length; i++) {
@@ -84,7 +88,7 @@ function handleBuildMatrices(epoch, payload) {
         comp: bufs.comp,
         profit: bufs.profit,
       },
-      [bufs.buy, bufs.sell, bufs.comp, bufs.profit]
+      [bufs.buy, bufs.sell, bufs.comp, bufs.profit],
     );
   } catch (err) {
     postError(epoch, err);
@@ -96,11 +100,22 @@ function handleRunPermutations(epoch, msg) {
   try {
     initWorkerPayload(msg.payload);
     const L = getSortBind();
-    L.applyMatricesFromWorkerBuffers(msg.n, msg.buy, msg.sell, msg.comp, msg.profit);
+    L.applyMatricesFromWorkerBuffers(
+      msg.n,
+      msg.buy,
+      msg.sell,
+      msg.comp,
+      msg.profit,
+    );
 
     for (let ji = 0; ji < jobs.length; ji++) {
       const job = jobs[ji];
-      const key = L.sortCacheKey(job.col, job.dirStr, job.secondary, job.wisdomSlice);
+      const key = L.sortCacheKey(
+        job.col,
+        job.dirStr,
+        job.secondary,
+        job.wisdomSlice,
+      );
       const perm = L.buildSortPermutation({
         col: job.col,
         dir: job.dir,
@@ -116,7 +131,7 @@ function handleRunPermutations(epoch, msg) {
           total: jobs.length,
           perm: perm.buffer,
         },
-        [perm.buffer]
+        [perm.buffer],
       );
     }
 
@@ -138,7 +153,8 @@ function handleRunFull(epoch, msg) {
     L.invalidatePriceMatricesCache();
     L.precomputePriceMatrices();
     const bufs = L.cloneMatrixBuffersForTransfer();
-    const n = msg.payload && msg.payload.ItemList ? msg.payload.ItemList.length : 0;
+    const n =
+      msg.payload && msg.payload.ItemList ? msg.payload.ItemList.length : 0;
     self.postMessage(
       {
         type: "matrices",
@@ -149,12 +165,17 @@ function handleRunFull(epoch, msg) {
         comp: bufs.comp,
         profit: bufs.profit,
       },
-      [bufs.buy, bufs.sell, bufs.comp, bufs.profit]
+      [bufs.buy, bufs.sell, bufs.comp, bufs.profit],
     );
 
     for (let ji = 0; ji < jobs.length; ji++) {
       const job = jobs[ji];
-      const key = L.sortCacheKey(job.col, job.dirStr, job.secondary, job.wisdomSlice);
+      const key = L.sortCacheKey(
+        job.col,
+        job.dirStr,
+        job.secondary,
+        job.wisdomSlice,
+      );
       const perm = L.buildSortPermutation({
         col: job.col,
         dir: job.dir,
@@ -170,7 +191,7 @@ function handleRunFull(epoch, msg) {
           total: jobs.length,
           perm: perm.buffer,
         },
-        [perm.buffer]
+        [perm.buffer],
       );
     }
 
