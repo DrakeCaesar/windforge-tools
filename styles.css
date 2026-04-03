@@ -1213,6 +1213,15 @@ main {
   scrollbar-width: thin;
 }
 
+/* Stacked craft flyouts (ingredient icon → sub-recipe → sub-sub-recipe) */
+.recipe-tooltip--nested {
+  z-index: 10001;
+}
+
+#recipe-tooltip-deep.recipe-tooltip--nested {
+  z-index: 10002;
+}
+
 .recipe-tooltip::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1291,6 +1300,10 @@ main {
 
 .recipe-tooltip__ing-icon[data-item-name] {
   cursor: pointer;
+}
+
+.recipe-tooltip__ing-icon[data-nested-recipe="1"] {
+  cursor: help;
 }
 
 /* Match table icons: flip + tint via .item-icon; size down for the tooltip row */

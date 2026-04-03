@@ -931,6 +931,38 @@ function createSortCacheWorker() {
 
   /** @type {HTMLElement | null} */
   let recipeTooltipEl = null;
+  /** @type {HTMLElement | null} */
+  let recipeTooltipSubEl = null;
+  /** @type {HTMLElement | null} */
+  let recipeTooltipDeepEl = null;
+
+  /** Async fill invalidation per flyout layer (0 = main, 1 = sub, 2 = deep). */
+  const recipeTooltipLayerShowToken = [0, 0, 0];
+
+  /** @type {HTMLElement | null} */
+  let recipeTooltipNestedAnchor1 = null;
+  /** @type {HTMLElement | null} */
+  let recipeTooltipNestedAnchor2 = null;
+
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let recipeNestedFlyoutHideTimer = null;
+
+  function recipeTooltipFlyoutRoots() {
+    return [recipeTooltipEl, recipeTooltipSubEl, recipeTooltipDeepEl].filter(Boolean);
+  }
+
+  function closestRecipeTooltipFlyout(el) {
+    return el && typeof el.closest === "function" ? el.closest(".recipe-tooltip") : null;
+  }
+
+  function itemHasRecipeFlyoutData(item) {
+    if (!item || !item.name) return false;
+    const recipes = data.recipesByProduct[item.name];
+    const usedIn = data.recipesByIngredient[item.name];
+    return (
+      (recipes && recipes.length > 0) || (usedIn && usedIn.length > 0)
+    );
+  }
 
   function canvasToDataUrlFromImage(img) {
     // Accept HTMLImageElement, HTMLCanvasElement, and other drawImage-compatible sources.
@@ -1005,15 +1037,36 @@ function createSortCacheWorker() {
     return p;
   }
 
-  function positionRecipeTooltip(clientX, clientY, anchorEl) {
+  /** Parent flyout used to place nested tooltips to the right (or left) of the whole panel. */
+  function parentRecipeFlyoutForNestedLayer(layerEl) {
+    if (layerEl === recipeTooltipSubEl) return recipeTooltipEl;
+    if (layerEl === recipeTooltipDeepEl) return recipeTooltipSubEl;
+    return null;
+  }
+
+  function positionRecipeTooltipLayer(
+    layerEl,
+    clientX,
+    clientY,
+    anchorEl,
+    zIndexCss
+  ) {
+    if (!layerEl) return;
     const margin = 8;
     const iconGap = -1;
+    const nestedPanelGap = 6;
     const minH = 160;
-    let anchor = anchorEl != null ? anchorEl : recipeTooltipAnchorTarget;
+    let anchor =
+      anchorEl != null
+        ? anchorEl
+        : layerEl === recipeTooltipEl
+          ? recipeTooltipAnchorTarget
+          : null;
     if (
       (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== "function") &&
       Number.isFinite(clientX) &&
-      Number.isFinite(clientY)
+      Number.isFinite(clientY) &&
+      layerEl === recipeTooltipEl
     ) {
       const resolved = getRecipeHoverTargetAtPoint(clientX, clientY);
       if (resolved) {
@@ -1027,23 +1080,42 @@ function createSortCacheWorker() {
       typeof anchor.getBoundingClientRect === "function"
         ? anchor.getBoundingClientRect()
         : null;
-    const below = window.innerHeight - margin - clientY;
-    const above = clientY - margin;
+    const parentPanel = parentRecipeFlyoutForNestedLayer(layerEl);
+    const parentRect0 =
+      parentPanel &&
+      !parentPanel.hidden &&
+      parentPanel.isConnected &&
+      typeof parentPanel.getBoundingClientRect === "function"
+        ? parentPanel.getBoundingClientRect()
+        : null;
+    /** Main flyout follows the pointer; nested flyouts align to the hovered ingredient icon. */
+    const refY =
+      layerEl !== recipeTooltipEl && anchorRect
+        ? anchorRect.top + anchorRect.height / 2
+        : clientY;
+    const below = window.innerHeight - margin - refY;
+    const above = refY - margin;
     const placeBelow = below >= minH || below >= above;
     const maxH = Math.max(minH, placeBelow ? below : above);
-    recipeTooltipEl.style.maxHeight = Math.floor(maxH) + "px";
-    recipeTooltipEl.style.position = "fixed";
-    const initialX = anchorRect ? anchorRect.right + iconGap : clientX;
-    recipeTooltipEl.style.left = initialX + "px";
-    recipeTooltipEl.style.top = (placeBelow ? clientY : clientY - maxH) + "px";
-    recipeTooltipEl.style.zIndex = "10000";
+    layerEl.style.maxHeight = Math.floor(maxH) + "px";
+    layerEl.style.position = "fixed";
+    let initialX;
+    if (layerEl !== recipeTooltipEl && parentRect0) {
+      initialX = parentRect0.right + nestedPanelGap;
+    } else {
+      initialX = anchorRect ? anchorRect.right + iconGap : clientX;
+    }
+    layerEl.style.left = initialX + "px";
+    layerEl.style.top = (placeBelow ? refY : refY - maxH) + "px";
+    layerEl.style.zIndex = zIndexCss;
     requestAnimationFrame(function () {
-      if (recipeTooltipEl.hidden) return;
-      const r = recipeTooltipEl.getBoundingClientRect();
+      if (layerEl.hidden) return;
+      const r = layerEl.getBoundingClientRect();
       if (
         (!anchor || !anchor.isConnected || typeof anchor.getBoundingClientRect !== "function") &&
         Number.isFinite(clientX) &&
-        Number.isFinite(clientY)
+        Number.isFinite(clientY) &&
+        layerEl === recipeTooltipEl
       ) {
         const resolved = getRecipeHoverTargetAtPoint(clientX, clientY);
         if (resolved) {
@@ -1057,8 +1129,26 @@ function createSortCacheWorker() {
         typeof anchor.getBoundingClientRect === "function"
           ? anchor.getBoundingClientRect()
           : null;
+      const parentPanelRaf = parentRecipeFlyoutForNestedLayer(layerEl);
+      const pr2 =
+        parentPanelRaf &&
+        !parentPanelRaf.hidden &&
+        parentPanelRaf.isConnected &&
+        typeof parentPanelRaf.getBoundingClientRect === "function"
+          ? parentPanelRaf.getBoundingClientRect()
+          : null;
       let x;
-      if (ar2) {
+      if (layerEl !== recipeTooltipEl && pr2) {
+        x = pr2.right + nestedPanelGap;
+        if (x + r.width > window.innerWidth - margin) {
+          const left = pr2.left - nestedPanelGap - r.width;
+          if (left >= margin) {
+            x = left;
+          } else {
+            x = Math.max(margin, window.innerWidth - r.width - margin);
+          }
+        }
+      } else if (ar2) {
         x = ar2.right + iconGap;
         if (x + r.width > window.innerWidth - margin) {
           const left = ar2.left - iconGap - r.width;
@@ -1074,30 +1164,89 @@ function createSortCacheWorker() {
           x = Math.max(margin, window.innerWidth - r.width - margin);
         }
       }
-      let y = placeBelow ? clientY : clientY - r.height;
-      const firstIconEl = recipeTooltipEl.querySelector(".recipe-tooltip__ing-icon");
+      let refY2 = clientY;
+      if (layerEl !== recipeTooltipEl && ar2) {
+        refY2 = ar2.top + ar2.height / 2;
+      }
+      let y = placeBelow ? refY2 : refY2 - r.height;
+      const firstIconEl = layerEl.querySelector(".recipe-tooltip__ing-icon");
       if (firstIconEl && typeof firstIconEl.getBoundingClientRect === "function") {
         const firstIconRect = firstIconEl.getBoundingClientRect();
         const firstIconCenterOffset = firstIconRect.top - r.top + firstIconRect.height / 2;
-        y = clientY - firstIconCenterOffset;
+        y = refY2 - firstIconCenterOffset;
       }
       if (y + r.height > window.innerHeight - margin) {
         y = Math.max(margin, window.innerHeight - r.height - margin);
       }
       if (x < margin) x = margin;
       if (y < margin) y = margin;
-      recipeTooltipEl.style.left = x + "px";
-      recipeTooltipEl.style.top = y + "px";
+      layerEl.style.left = x + "px";
+      layerEl.style.top = y + "px";
     });
+  }
+
+  function positionRecipeTooltip(clientX, clientY, anchorEl) {
+    positionRecipeTooltipLayer(
+      recipeTooltipEl,
+      clientX,
+      clientY,
+      anchorEl,
+      "10000"
+    );
+  }
+
+  function cancelNestedFlyoutHideDeferred() {
+    if (recipeNestedFlyoutHideTimer != null) {
+      clearTimeout(recipeNestedFlyoutHideTimer);
+      recipeNestedFlyoutHideTimer = null;
+    }
+  }
+
+  /**
+   * @param {1|2} firstLayerToHide — 1 = sub + deep; 2 = deep only
+   */
+  function hideNestedFlyoutsFrom(firstLayerToHide) {
+    if (firstLayerToHide <= 1) {
+      recipeTooltipLayerShowToken[1]++;
+      recipeTooltipLayerShowToken[2]++;
+      if (recipeTooltipDeepEl) {
+        recipeTooltipDeepEl.hidden = true;
+        recipeTooltipDeepEl.innerHTML = "";
+        recipeTooltipDeepEl.scrollTop = 0;
+      }
+      if (recipeTooltipSubEl) {
+        recipeTooltipSubEl.hidden = true;
+        recipeTooltipSubEl.innerHTML = "";
+        recipeTooltipSubEl.scrollTop = 0;
+      }
+      recipeTooltipNestedAnchor1 = null;
+      recipeTooltipNestedAnchor2 = null;
+      return;
+    }
+    if (firstLayerToHide <= 2) {
+      recipeTooltipLayerShowToken[2]++;
+      if (recipeTooltipDeepEl) {
+        recipeTooltipDeepEl.hidden = true;
+        recipeTooltipDeepEl.innerHTML = "";
+        recipeTooltipDeepEl.scrollTop = 0;
+      }
+      recipeTooltipNestedAnchor2 = null;
+    }
+  }
+
+  function hideNestedRecipeFlyouts() {
+    hideNestedFlyoutsFrom(1);
   }
 
   function hideRecipeTooltip() {
     cancelRecipeTooltipHideDeferred();
+    cancelNestedFlyoutHideDeferred();
     recipeTooltipShowToken++;
     recipeTooltipEl.hidden = true;
     recipeTooltipEl.classList.remove("recipe-tooltip--pinned");
     recipeTooltipEl.innerHTML = "";
     recipeTooltipEl.scrollTop = 0;
+    hideNestedRecipeFlyouts();
     recipeTooltipScrollArmed = false;
     recipeTooltipPinned = false;
     recipeTooltipPinnedTarget = null;
@@ -1126,16 +1275,8 @@ function createSortCacheWorker() {
     );
   }
 
-  function isPointerOverRecipeTooltipZone(clientX, clientY) {
-    if (recipeTooltipEl.hidden) return false;
-    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
-    const inflate = 8;
-    const tr = recipeTooltipEl.getBoundingClientRect();
-    if (pointInExpandedRect(tr, clientX, clientY, inflate)) return true;
-    const anchor = recipeTooltipAnchorTarget;
-    if (!anchor || !anchor.isConnected) return false;
-    const ar = anchor.getBoundingClientRect();
-    if (pointInExpandedRect(ar, clientX, clientY, inflate)) return true;
+  function pointerInBridgeBetweenRects(ar, tr, clientX, clientY, inflate) {
+    if (!ar || !tr) return false;
     if (ar.right < tr.left) {
       if (clientX >= ar.right - inflate && clientX <= tr.left + inflate) {
         const yTop = Math.min(ar.top, tr.top) - inflate;
@@ -1152,13 +1293,61 @@ function createSortCacheWorker() {
     return false;
   }
 
+  function isPointerOverRecipeTooltipZone(clientX, clientY) {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const inflate = 8;
+    const roots = recipeTooltipFlyoutRoots();
+    for (let i = 0; i < roots.length; i++) {
+      const el = roots[i];
+      if (!el || el.hidden) continue;
+      const tr = el.getBoundingClientRect();
+      if (pointInExpandedRect(tr, clientX, clientY, inflate)) return true;
+    }
+
+    if (recipeTooltipEl && !recipeTooltipEl.hidden) {
+      const anchor = recipeTooltipAnchorTarget;
+      if (anchor && anchor.isConnected) {
+        const ar = anchor.getBoundingClientRect();
+        const tr = recipeTooltipEl.getBoundingClientRect();
+        if (pointInExpandedRect(ar, clientX, clientY, inflate)) return true;
+        if (pointerInBridgeBetweenRects(ar, tr, clientX, clientY, inflate)) return true;
+      }
+    }
+
+    if (
+      recipeTooltipEl &&
+      !recipeTooltipEl.hidden &&
+      recipeTooltipSubEl &&
+      !recipeTooltipSubEl.hidden
+    ) {
+      const pr = recipeTooltipEl.getBoundingClientRect();
+      const sr = recipeTooltipSubEl.getBoundingClientRect();
+      if (pointerInBridgeBetweenRects(pr, sr, clientX, clientY, inflate)) return true;
+    }
+
+    if (
+      recipeTooltipSubEl &&
+      !recipeTooltipSubEl.hidden &&
+      recipeTooltipDeepEl &&
+      !recipeTooltipDeepEl.hidden
+    ) {
+      const pr = recipeTooltipSubEl.getBoundingClientRect();
+      const dr = recipeTooltipDeepEl.getBoundingClientRect();
+      if (pointerInBridgeBetweenRects(pr, dr, clientX, clientY, inflate)) return true;
+    }
+
+    return false;
+  }
+
   function shouldKeepRecipeTooltipOpen() {
     const x = lastPointerClientX;
     const y = lastPointerClientY;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     if (isPointerOverRecipeTooltipZone(x, y)) return true;
     const el = document.elementFromPoint(x, y);
-    if (el && recipeTooltipEl.contains(el)) return true;
+    if (el && typeof el.closest === "function" && el.closest(".recipe-tooltip")) {
+      return true;
+    }
     if (el && typeof el.closest === "function" && el.closest("[data-recipe-hover-bound='1']")) {
       return true;
     }
@@ -1205,6 +1394,8 @@ function createSortCacheWorker() {
     const item = recipeHoverItemByTarget.get(targetEl);
     if (!item) return;
     cancelRecipeTooltipHideDeferred();
+    cancelNestedFlyoutHideDeferred();
+    hideNestedRecipeFlyouts();
     recipeTooltipAnchorTarget = targetEl || null;
     const token = ++recipeTooltipShowToken;
     void (async function () {
@@ -1365,28 +1556,197 @@ function createSortCacheWorker() {
     iconWrap.appendChild(im);
   }
 
-  async function fillRecipeTooltip(item) {
+  function scheduleNestedFlyoutHideDeferred() {
+    cancelNestedFlyoutHideDeferred();
+    recipeNestedFlyoutHideTimer = setTimeout(function () {
+      recipeNestedFlyoutHideTimer = null;
+      if (recipeTooltipPinned) return;
+      if (shouldKeepNestedFlyoutsOpen()) return;
+      hideNestedRecipeFlyouts();
+    }, RECIPE_TOOLTIP_HIDE_DELAY_MS);
+  }
+
+  function shouldKeepNestedFlyoutsOpen() {
+    const x = lastPointerClientX;
+    const y = lastPointerClientY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const roots = recipeTooltipFlyoutRoots();
+    for (let i = 0; i < roots.length; i++) {
+      const el = roots[i];
+      if (!el || el.hidden) continue;
+      const tr = el.getBoundingClientRect();
+      if (pointInExpandedRect(tr, x, y, 8)) return true;
+    }
+    const a1 = recipeTooltipNestedAnchor1;
+    if (
+      a1 &&
+      a1.isConnected &&
+      typeof a1.getBoundingClientRect === "function" &&
+      pointInExpandedRect(a1.getBoundingClientRect(), x, y, 8)
+    ) {
+      return true;
+    }
+    const a2 = recipeTooltipNestedAnchor2;
+    if (
+      a2 &&
+      a2.isConnected &&
+      typeof a2.getBoundingClientRect === "function" &&
+      pointInExpandedRect(a2.getBoundingClientRect(), x, y, 8)
+    ) {
+      return true;
+    }
+    const elPt = document.elementFromPoint(x, y);
+    if (elPt) {
+      for (let j = 0; j < roots.length; j++) {
+        const r = roots[j];
+        if (r && !r.hidden && r.contains(elPt)) return true;
+      }
+    }
+    if (
+      recipeTooltipEl &&
+      !recipeTooltipEl.hidden &&
+      recipeTooltipSubEl &&
+      !recipeTooltipSubEl.hidden
+    ) {
+      const pr = recipeTooltipEl.getBoundingClientRect();
+      const sr = recipeTooltipSubEl.getBoundingClientRect();
+      if (pointerInBridgeBetweenRects(pr, sr, x, y, 8)) return true;
+    }
+    if (
+      recipeTooltipSubEl &&
+      !recipeTooltipSubEl.hidden &&
+      recipeTooltipDeepEl &&
+      !recipeTooltipDeepEl.hidden
+    ) {
+      const pr = recipeTooltipSubEl.getBoundingClientRect();
+      const dr = recipeTooltipDeepEl.getBoundingClientRect();
+      if (pointerInBridgeBetweenRects(pr, dr, x, y, 8)) return true;
+    }
+    return false;
+  }
+
+  async function showNestedRecipeFlyoutForIcon(
+    parentLayerIndex,
+    item,
+    anchorEl,
+    clientX,
+    clientY
+  ) {
+    if (parentLayerIndex < 0 || parentLayerIndex >= 2) return;
+    if (!item || !itemHasRecipeFlyoutData(item)) return;
+    const targetLayerIndex = parentLayerIndex + 1;
+    const layerEl =
+      targetLayerIndex === 1 ? recipeTooltipSubEl : recipeTooltipDeepEl;
+    if (!layerEl) return;
+
+    cancelNestedFlyoutHideDeferred();
+    if (targetLayerIndex === 1) {
+      hideNestedFlyoutsFrom(1);
+      recipeTooltipNestedAnchor1 = anchorEl;
+    } else {
+      hideNestedFlyoutsFrom(2);
+      recipeTooltipNestedAnchor2 = anchorEl;
+    }
+
+    const token = ++recipeTooltipLayerShowToken[targetLayerIndex];
+    layerEl.hidden = true;
+
+    const ok = await fillRecipeTooltipInto(layerEl, item, targetLayerIndex);
+    if (token !== recipeTooltipLayerShowToken[targetLayerIndex]) return;
+    if (!ok) {
+      layerEl.hidden = true;
+      return;
+    }
+
+    layerEl.hidden = false;
+    const z = targetLayerIndex === 1 ? "10001" : "10002";
+    positionRecipeTooltipLayer(layerEl, clientX, clientY, anchorEl, z);
+  }
+
+  function maybeWireNestedRecipeIcon(iconWrap, subItem, parentLayerIndex) {
+    if (!subItem || parentLayerIndex >= 2) return;
+    if (!itemHasRecipeFlyoutData(subItem)) return;
+    if (iconWrap.dataset.nestedFlyoutWired === "1") return;
+    iconWrap.dataset.nestedFlyoutWired = "1";
+    iconWrap.setAttribute("data-nested-recipe", "1");
+
+    iconWrap.addEventListener(
+      "mouseenter",
+      function (e) {
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
+        cancelNestedFlyoutHideDeferred();
+        void showNestedRecipeFlyoutForIcon(
+          parentLayerIndex,
+          subItem,
+          iconWrap,
+          e.clientX,
+          e.clientY
+        );
+      },
+      { passive: true }
+    );
+    iconWrap.addEventListener(
+      "mousemove",
+      function (e) {
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
+        const tip =
+          parentLayerIndex === 0 ? recipeTooltipSubEl : recipeTooltipDeepEl;
+        if (tip && !tip.hidden) {
+          cancelNestedFlyoutHideDeferred();
+          positionRecipeTooltipLayer(
+            tip,
+            e.clientX,
+            e.clientY,
+            iconWrap,
+            parentLayerIndex === 0 ? "10001" : "10002"
+          );
+        }
+      },
+      { passive: true }
+    );
+    iconWrap.addEventListener(
+      "mouseleave",
+      function (e) {
+        if (recipeTooltipPinned) return;
+        const rt = e.relatedTarget;
+        const nextLayer =
+          parentLayerIndex === 0 ? recipeTooltipSubEl : recipeTooltipDeepEl;
+        if (rt && nextLayer && nextLayer.contains(rt)) return;
+        scheduleNestedFlyoutHideDeferred();
+      },
+      { passive: true }
+    );
+  }
+
+  /**
+   * @param {HTMLElement} containerEl
+   * @param {number} layerIndex 0 = main flyout; 1–2 = nested (deeper icons are not wired)
+   * @returns {Promise<boolean>} whether any craft/used-in content was rendered
+   */
+  async function fillRecipeTooltipInto(containerEl, item, layerIndex) {
     const recipes = data.recipesByProduct[item.name];
     const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
-    if (!hasCraft && !hasUsed) return;
+    if (!hasCraft && !hasUsed) return false;
 
-    recipeTooltipEl.innerHTML = "";
-    recipeTooltipEl.scrollTop = 0;
+    containerEl.innerHTML = "";
+    containerEl.scrollTop = 0;
 
     if (hasCraft) {
       const head = document.createElement("div");
       head.className = "recipe-tooltip__head";
       head.textContent = "Craft: " + (displayName(item) || item.name || "");
-      recipeTooltipEl.appendChild(head);
+      containerEl.appendChild(head);
 
       for (let i = 0; i < recipes.length; i++) {
         const rec = recipes[i];
         if (i > 0) {
           const hr = document.createElement("hr");
           hr.className = "recipe-tooltip__hr";
-          recipeTooltipEl.appendChild(hr);
+          containerEl.appendChild(hr);
         }
         const title = document.createElement("div");
         title.className = "recipe-tooltip__title";
@@ -1401,7 +1761,7 @@ function createSortCacheWorker() {
           out.textContent = " (outputs ×" + rec.craftQuantity + ")";
           title.appendChild(out);
         }
-        recipeTooltipEl.appendChild(title);
+        containerEl.appendChild(title);
 
         const ul = document.createElement("ul");
         ul.className = "recipe-tooltip__list";
@@ -1425,6 +1785,7 @@ function createSortCacheWorker() {
             const dataUrl = craftIconUrls[j];
             attachRecipeTooltipIcon(iconWrap, sub, dataUrl);
             iconWrap.dataset.itemName = sub.name;
+            maybeWireNestedRecipeIcon(iconWrap, sub, layerIndex);
           } else {
             iconWrap.textContent = "?";
           }
@@ -1442,7 +1803,7 @@ function createSortCacheWorker() {
 
           ul.appendChild(li);
         }
-        recipeTooltipEl.appendChild(ul);
+        containerEl.appendChild(ul);
       }
     }
 
@@ -1450,12 +1811,12 @@ function createSortCacheWorker() {
       if (hasCraft) {
         const hr = document.createElement("hr");
         hr.className = "recipe-tooltip__hr";
-        recipeTooltipEl.appendChild(hr);
+        containerEl.appendChild(hr);
       }
       const subHead = document.createElement("div");
       subHead.className = "recipe-tooltip__head";
       subHead.textContent = "Used in:";
-      recipeTooltipEl.appendChild(subHead);
+      containerEl.appendChild(subHead);
 
       const ulUsed = document.createElement("ul");
       ulUsed.className = "recipe-tooltip__list recipe-tooltip__list--used-in";
@@ -1515,6 +1876,7 @@ function createSortCacheWorker() {
             await appendRecipeSetIconFallback(iconWrap, row);
           }
           iconWrap.dataset.itemName = repItem.name;
+          maybeWireNestedRecipeIcon(iconWrap, repItem, layerIndex);
         } else {
           await appendRecipeSetIconFallback(iconWrap, row);
         }
@@ -1538,10 +1900,15 @@ function createSortCacheWorker() {
 
         ulUsed.appendChild(li);
       }
-      recipeTooltipEl.appendChild(ulUsed);
+      containerEl.appendChild(ulUsed);
     }
 
-    recipeTooltipEl.hidden = false;
+    return true;
+  }
+
+  async function fillRecipeTooltip(item) {
+    const ok = await fillRecipeTooltipInto(recipeTooltipEl, item, 0);
+    if (ok) recipeTooltipEl.hidden = false;
   }
 
   function bindRecipeHover(targetEl, item) {
@@ -1587,7 +1954,13 @@ function createSortCacheWorker() {
       function (e) {
         if (recipeTooltipPinned) return;
         const rt = e.relatedTarget;
-        if (rt && recipeTooltipEl && recipeTooltipEl.contains(rt)) return;
+        if (
+          rt &&
+          typeof rt.closest === "function" &&
+          rt.closest(".recipe-tooltip")
+        ) {
+          return;
+        }
         scheduleRecipeTooltipHideDeferred();
       },
       { passive: true }
@@ -1634,9 +2007,10 @@ function createSortCacheWorker() {
         if (
           t &&
           typeof t.closest === "function" &&
-          (t.closest("[data-recipe-hover-bound='1']") || t.closest("#recipe-tooltip"))
+          (t.closest("[data-recipe-hover-bound='1']") || t.closest(".recipe-tooltip"))
         ) {
           cancelRecipeTooltipHideDeferred();
+          cancelNestedFlyoutHideDeferred();
           return;
         }
         if (isPointerOverRecipeTooltipZone(e.clientX, e.clientY)) {
@@ -1657,7 +2031,7 @@ function createSortCacheWorker() {
           hideRecipeTooltip();
           return;
         }
-        if (t.closest("#recipe-tooltip")) return;
+        if (t.closest(".recipe-tooltip")) return;
         if (t.closest("[data-recipe-hover-bound='1']")) return;
         hideRecipeTooltip();
       },
@@ -1669,59 +2043,61 @@ function createSortCacheWorker() {
       function (e) {
         // Preserve browser/page zoom gestures (Ctrl/Cmd + wheel).
         if (e.ctrlKey || e.metaKey) return;
-        if (recipeTooltipEl.hidden) return;
         const t = e.target;
         if (!t || typeof t.closest !== "function") return;
-        const onTooltip = t.closest("#recipe-tooltip");
+        const scrollHost = closestRecipeTooltipFlyout(t);
         const onIcon = t.closest("[data-recipe-hover-bound='1']");
         if (recipeTooltipScrollArmed) {
-          if (!onTooltip && !onIcon) return;
-        } else if (!onTooltip) {
+          if (!scrollHost && !onIcon) return;
+        } else if (!scrollHost) {
           return;
         }
+        const el = scrollHost && !scrollHost.hidden ? scrollHost : recipeTooltipEl;
+        if (!el || el.hidden) return;
         let dy = e.deltaY;
         if (e.deltaMode === 1) dy *= 16;
-        else if (e.deltaMode === 2) dy *= recipeTooltipEl.clientHeight;
+        else if (e.deltaMode === 2) dy *= el.clientHeight;
         if (!dy) return;
-        const maxScroll = recipeTooltipEl.scrollHeight - recipeTooltipEl.clientHeight;
+        const maxScroll = el.scrollHeight - el.clientHeight;
         if (maxScroll <= 0) {
-          if (onTooltip) e.preventDefault();
+          if (scrollHost) e.preventDefault();
           return;
         }
-        const cur = recipeTooltipEl.scrollTop;
+        const cur = el.scrollTop;
         const next = Math.max(0, Math.min(maxScroll, cur + dy));
         if (next === cur) {
-          if (onTooltip) e.preventDefault();
+          if (scrollHost) e.preventDefault();
           return;
         }
         e.preventDefault();
-        recipeTooltipEl.scrollTop = next;
+        el.scrollTop = next;
       },
       { passive: false }
     );
 
-    recipeTooltipEl.addEventListener(
-      "mouseenter",
-      function () {
-        cancelRecipeTooltipHideDeferred();
-      },
-      { passive: true }
-    );
+    function onRecipeFlyoutMouseEnter() {
+      cancelRecipeTooltipHideDeferred();
+      cancelNestedFlyoutHideDeferred();
+    }
 
-    recipeTooltipEl.addEventListener(
-      "click",
-      function (e) {
-        pinRecipeTooltip(recipeTooltipPinnedTarget || recipeTooltipAnchorTarget);
-        const icon = e.target.closest(".recipe-tooltip__ing-icon[data-item-name]");
-        if (!icon) return;
-        const itemName = icon.getAttribute("data-item-name");
-        if (!itemName) return;
-        e.preventDefault();
-        e.stopPropagation();
-        navigateToTooltipItem(itemName);
-      },
-      { passive: false }
-    );
+    function onRecipeFlyoutClick(e) {
+      pinRecipeTooltip(recipeTooltipPinnedTarget || recipeTooltipAnchorTarget);
+      const icon = e.target.closest(".recipe-tooltip__ing-icon[data-item-name]");
+      if (!icon) return;
+      const itemName = icon.getAttribute("data-item-name");
+      if (!itemName) return;
+      e.preventDefault();
+      e.stopPropagation();
+      navigateToTooltipItem(itemName);
+    }
+
+    const flyoutsForEvents = recipeTooltipFlyoutRoots();
+    for (let fi = 0; fi < flyoutsForEvents.length; fi++) {
+      const tip = flyoutsForEvents[fi];
+      if (!tip) continue;
+      tip.addEventListener("mouseenter", onRecipeFlyoutMouseEnter, { passive: true });
+      tip.addEventListener("click", onRecipeFlyoutClick, { passive: false });
+    }
   }
 
   function description(item) {
@@ -3928,7 +4304,7 @@ function createSortCacheWorker() {
           if (
             !recipeTooltipEl.hidden &&
             recipeTooltipScrollArmed &&
-            (target.closest("[data-recipe-hover-bound='1']") || target.closest("#recipe-tooltip"))
+            (target.closest("[data-recipe-hover-bound='1']") || target.closest(".recipe-tooltip"))
           ) {
             return;
           }
@@ -4504,6 +4880,8 @@ function createSortCacheWorker() {
     sortBind.invalidatePriceMatricesCache();
     rebuildItemIndexByName();
     recipeTooltipEl = document.getElementById("recipe-tooltip");
+    recipeTooltipSubEl = document.getElementById("recipe-tooltip-sub");
+    recipeTooltipDeepEl = document.getElementById("recipe-tooltip-deep");
     ensureRecipeTooltipGlobalWatchers();
 
         blockTypes = {};
