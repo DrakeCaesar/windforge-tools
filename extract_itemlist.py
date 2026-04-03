@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Extract ItemList from Data/objects/crafting/craftingitems.lua into itemlist.json
-next to this script, including a packed PNG atlas (`icons/icons-atlas.png`) of unique inventory DDS icons (Pillow required; otherwise per-hash PNGs under `icons/`).
+Extract ItemList from Data/objects/crafting/craftingitems.lua into `public/itemlist.json`
+(and `public/itemlist.json.gz`), including a packed PNG atlas at `public/icons-atlas.png`
+of unique inventory DDS icons (Pillow required; otherwise per-hash PNGs are copied flat into `public/`).
 
-Also extracts block stats from Data/objects/sharedblockinfo.lua into sharedblockinfo.json
-(hitPoints, mass, buoyancy, impactDamageMult per block type).
+Also extracts block stats from Data/objects/sharedblockinfo.lua into `public/sharedblockinfo.json`
+(and `.gz`) — hitPoints, mass, buoyancy, impactDamageMult per block type.
 
 Parses Data/objects/crafting/recipes.lua into recipesByProduct (ingredients to craft an item)
 and recipesByIngredient (recipe sets that use an item as an ingredient, one row per set).
+
+All emitted catalog assets live under `public/` so Vite serves them in dev and copies them to `dist/`.
 
 Run from anywhere: python extract_itemlist.py
 """
@@ -17,8 +20,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -449,8 +454,9 @@ def build_icon_map(
     extra_normalized_paths: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     """
-    Map normalized icon path -> URL path for the viewer (relative to viewer directory).
-    If export_png, creates PNG files and maps to icons/xxx.png; else maps to ../../Data/...
+    Map normalized icon path -> URL path for the viewer (relative to `public/`).
+    If export_png, creates PNG files under icons_out and maps to basename only (e.g. deadbeef.png);
+    else maps to ../../Data/...
     extra_normalized_paths: e.g. recipe set icons from recipes.lua not used by any item icon.
     """
     unique: Dict[str, None] = {}
@@ -478,7 +484,7 @@ def build_icon_map(
             if not png_path.is_file():
                 try_dds_to_png(dds, png_path)
             if png_path.is_file():
-                icon_map[norm] = f"icons/{png_name}"
+                icon_map[norm] = png_name
         else:
             # Relative URL when HTTP server root = game_root: /Data/...
             icon_map[norm] = f"../../{norm}"
@@ -487,14 +493,15 @@ def build_icon_map(
 
 
 def pack_icon_atlas(
-    script_dir: Path,
-    icons_dir: Path,
+    public_dir: Path,
+    staging_dir: Path,
     icon_map: Dict[str, str],
     atlas_filename: str = "icons-atlas.png",
     max_width: int = 4096,
 ) -> Optional[Tuple[Dict[str, str], Dict[str, Any]]]:
     """
-    Pack icons/*.png into a single atlas; delete individual PNGs on success.
+    Pack staging_dir/*.png into public_dir/icons-atlas.png; delete staging PNGs on success.
+    staging_dir: temp folder with per-hash PNGs from build_icon_map.
     Returns (new_icon_map with values 'atlas:<norm>', iconAtlas payload) or None if packing fails.
     """
     try:
@@ -504,9 +511,11 @@ def pack_icon_atlas(
 
     entries: List[Tuple[str, Path, int, int]] = []
     for norm, rel in icon_map.items():
-        if not isinstance(rel, str) or not rel.startswith("icons/"):
+        if not isinstance(rel, str) or rel.startswith("atlas:"):
             continue
-        p = script_dir / rel
+        if "/" in rel:
+            continue
+        p = staging_dir / rel
         if not p.is_file():
             continue
         try:
@@ -548,8 +557,8 @@ def pack_icon_atlas(
         im.close()
         sprites[norm] = {"x": px, "y": py, "w": pw, "h": ph}
 
-    atlas_path = icons_dir / atlas_filename
-    icons_dir.mkdir(parents=True, exist_ok=True)
+    public_dir.mkdir(parents=True, exist_ok=True)
+    atlas_path = public_dir / atlas_filename
     atlas.save(atlas_path, optimize=True)
 
     for _norm, path, _w, _h in entries:
@@ -566,7 +575,7 @@ def pack_icon_atlas(
             new_icon_map[norm] = rel
 
     payload: Dict[str, Any] = {
-        "image": f"icons/{atlas_filename}",
+        "image": atlas_filename,
         "sprites": sprites,
     }
     return new_icon_map, payload
@@ -574,12 +583,13 @@ def pack_icon_atlas(
 
 def main() -> int:
     script_dir = Path(__file__).resolve().parent
+    public_dir = script_dir / "public"
     game_root = script_dir.parent.parent
     crafting = game_root / "Data" / "objects" / "crafting" / "craftingitems.lua"
     recipes_lua = game_root / "Data" / "objects" / "crafting" / "recipes.lua"
     shared_blocks = game_root / "Data" / "objects" / "sharedblockinfo.lua"
-    out_path = script_dir / "itemlist.json"
-    blocks_out_path = script_dir / "sharedblockinfo.json"
+    out_path = public_dir / "itemlist.json"
+    blocks_out_path = public_dir / "sharedblockinfo.json"
 
     if not crafting.is_file():
         print(f"error: crafting file not found: {crafting}", file=sys.stderr)
@@ -625,23 +635,34 @@ def main() -> int:
     else:
         print(f"warning: recipes file not found: {recipes_lua}", file=sys.stderr)
 
-    icons_dir = script_dir / "icons"
     print("Building PNG icon cache ...")
-    icon_map = build_icon_map(
-        items, game_root, icons_dir, export_png=True, extra_normalized_paths=recipe_icon_paths
-    )
-    print(f"Resolved {len(icon_map)} icons to PNG.")
-
     icon_atlas_payload: Optional[Dict[str, Any]] = None
-    packed = pack_icon_atlas(script_dir, icons_dir, icon_map)
-    if packed:
-        icon_map, icon_atlas_payload = packed
-        print(
-            f"Packed {len(icon_atlas_payload['sprites'])} sprites into {icon_atlas_payload['image']} "
-            "(individual PNGs removed)."
+    icon_map: Dict[str, str] = {}
+    with tempfile.TemporaryDirectory(prefix="itemlist-icon-staging-") as staging_s:
+        staging = Path(staging_s)
+        icon_map = build_icon_map(
+            items,
+            game_root,
+            staging,
+            export_png=True,
+            extra_normalized_paths=recipe_icon_paths,
         )
-    else:
-        print("Atlas pack skipped (Pillow missing or no icons); using per-file icons/ PNGs.")
+        print(f"Resolved {len(icon_map)} icons to PNG.")
+
+        packed = pack_icon_atlas(public_dir, staging, icon_map)
+        if packed:
+            icon_map, icon_atlas_payload = packed
+            print(
+                f"Packed {len(icon_atlas_payload['sprites'])} sprites into public/{icon_atlas_payload['image']} "
+                "(staging PNGs removed)."
+            )
+        else:
+            public_dir.mkdir(parents=True, exist_ok=True)
+            for f in staging.glob("*.png"):
+                shutil.copy2(f, public_dir / f.name)
+            print(
+                "Atlas pack skipped (Pillow missing or no icons); copied per-hash PNGs into public/."
+            )
 
     try:
         source_rel = str(crafting.relative_to(game_root))
