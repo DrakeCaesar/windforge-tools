@@ -1,6 +1,8 @@
 # Repo root = item-catalog (no monorepo working-directory).
 # Build on every push/PR. On push to main/master, uploads dist/ for GitHub Pages
 # (enable: Settings → Pages → Source: GitHub Actions).
+#
+# pnpm version: only package.json "packageManager" (do not set version in pnpm/action-setup).
 
 name: CI
 
@@ -22,17 +24,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
+      # Omit "version" — uses packageManager from package.json (avoids ERR_PNPM_BAD_PM_VERSION).
       - name: pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
+        uses: pnpm/action-setup@v5
 
+      # "latest" = newest Node in the action’s version list (align with local “always current”).
       - name: Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: latest
           cache: pnpm
 
       - name: Install
@@ -43,7 +45,7 @@ jobs:
 
       - name: Upload Pages artifact
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
@@ -63,4 +65,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
