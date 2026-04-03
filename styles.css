@@ -1320,3 +1320,48 @@ main {
   height: 32px;
   object-fit: contain;
 }
+
+/* Debug: sort permutation precompute progress (bottom-right) */
+.sort-precalc-debug {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9000;
+  min-width: 180px;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text, #e8e6e3);
+  background: rgba(20, 22, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.sort-precalc-debug__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  opacity: 0.9;
+}
+
+.sort-precalc-debug__stats {
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+  opacity: 0.85;
+}
+
+.sort-precalc-debug__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.sort-precalc-debug__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #3d8fd1, #5cb87a);
+  transition: width 0.15s ease-out;
+}

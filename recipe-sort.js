@@ -11,7 +11,7 @@
     return spaced.split(/\s+/).filter(Boolean);
   }
 
-  window.createRecipeSortEngine = function createRecipeSortEngine() {
+  globalThis.createRecipeSortEngine = function createRecipeSortEngine() {
     let data = { ItemList: [], recipesByProduct: {} };
 
     const RECIPE_PRIMARY_MATERIAL_ORDER = [

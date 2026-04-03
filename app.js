@@ -14,10 +14,34 @@
 
   /** @type {{ ItemList: object[], iconMap: Record<string,string>, iconAtlas?: { image: string, sprites: Record<string, { x: number, y: number, w: number, h: number }> }, itemCount?: number, source?: string, recipesByProduct?: Record<string, object[]>, recipesByIngredient?: Record<string, object[]>, recipeSource?: string }} */
   let data = { ItemList: [], iconMap: {}, recipesByProduct: {}, recipesByIngredient: {} };
-  let recipeSortEngine = window.createRecipeSortEngine();
+  let recipeSortEngine = globalThis.createRecipeSortEngine();
 
   /** Internal item name → item row (for ingredient icons). */
   const itemByName = new Map();
+
+  /** Stable index in `data.ItemList` by internal name (precomputed sort permutations). */
+  const itemIndexByName = new Map();
+
+  /** Full-list permutation per (column, asc|desc, secondary mode, wisdom slice). */
+  const sortPermCache = new Map();
+
+  /** Bumped on each data load so idle sort-cache work from a previous catalog is ignored. */
+  let sortCacheBuildEpoch = 0;
+
+  /** @type {number|ReturnType<typeof setTimeout>|null} */
+  let sortPermCacheIdleId = null;
+
+  /** Parallel workers computing sort permutations (after matrices exist). */
+  const SORT_CACHE_PERM_WORKER_CAP = 8;
+
+  /** @type {Worker[]} */
+  let sortCacheWorkers = [];
+
+  /** One-shot worker that only builds price matrices when using multiple perm workers. */
+  let sortCacheMatrixWorker = null;
+
+  /** Total permutation keys for the loaded catalog (for debug progress). */
+  let sortCacheJobTotalCount = 0;
 
   /** From sharedblockinfo.json: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
@@ -27,13 +51,59 @@
   /** @type {'asc'|'desc'} */
   let sortDir = "asc";
 
-  /** Tie-break when primary sort column compares equal: full internal name vs recipe-base grouping. */
-  const SECONDARY_SORT_INTERNAL_NAME = "name";
-  const SECONDARY_SORT_RECIPE_BASE = "recipeBase";
+  const SP = globalThis.itemCatalogSortPermutation;
+  if (!SP) {
+    throw new Error("Load sort-permutation-core.js before app.js");
+  }
+
+  const COLUMNS = SP.COLUMNS;
+  const COLUMN_BY_ID = SP.COLUMN_BY_ID;
+  const WISDOM_LEVEL_COUNT = SP.WISDOM_LEVEL_COUNT;
+  const PRECOMPUTED_WISDOM_SLICE_SET = SP.PRECOMPUTED_WISDOM_SLICE_SET;
+  const PRICE_SORT_COLUMN_IDS = SP.PRICE_SORT_COLUMN_IDS;
+  const SECONDARY_SORT_INTERNAL_NAME = SP.SECONDARY_SORT_INTERNAL_NAME;
+  const SECONDARY_SORT_RECIPE_BASE = SP.SECONDARY_SORT_RECIPE_BASE;
+
+  const MELEE_WEAPON_OBJECT_TYPE = SP.MELEE_WEAPON_OBJECT_TYPE;
+  const JACKHAMMER_OBJECT_TYPE = SP.JACKHAMMER_OBJECT_TYPE;
+  const RANGED_WEAPON_OBJECT_TYPE = SP.RANGED_WEAPON_OBJECT_TYPE;
+  const THROWABLE_WEAPON_OBJECT_TYPE = SP.THROWABLE_WEAPON_OBJECT_TYPE;
+  const CLOTHING_ITEM_OBJECT_TYPE = SP.CLOTHING_ITEM_OBJECT_TYPE;
+  const PLACE_BLOCK_ITEM_OBJECT_TYPE = SP.PLACE_BLOCK_ITEM_OBJECT_TYPE;
+  const GRAPPLING_HOOK_OBJECT_TYPE = SP.GRAPPLING_HOOK_OBJECT_TYPE;
+  const PLACE_PROPULSION_OBJECT_ITEM_TYPE = SP.PLACE_PROPULSION_OBJECT_ITEM_TYPE;
+  const PLACE_ENGINE_OBJECT_ITEM_TYPE = SP.PLACE_ENGINE_OBJECT_ITEM_TYPE;
+  const PLACE_GRINDER_OBJECT_ITEM_TYPE = SP.PLACE_GRINDER_OBJECT_ITEM_TYPE;
+  const PLACE_OBJECT_ITEM_TYPE = SP.PLACE_OBJECT_ITEM_TYPE;
+  const PLACE_SHIP_SCAFFOLDING_ITEM_TYPE = SP.PLACE_SHIP_SCAFFOLDING_ITEM_TYPE;
+  const PLACE_ARTILLERY_SHIP_ITEM_TYPE = SP.PLACE_ARTILLERY_SHIP_ITEM_TYPE;
+  const PLACEABLE_SETUP_STAT_TYPE_SET = SP.PLACEABLE_SETUP_STAT_TYPE_SET;
 
   /** @type {typeof SECONDARY_SORT_INTERNAL_NAME | typeof SECONDARY_SORT_RECIPE_BASE} */
   let secondarySortMode = SECONDARY_SORT_INTERNAL_NAME;
   let wisdomStat = 0;
+
+  const sortBind = SP.createBindings({
+    getData: function () {
+      return data;
+    },
+    getBlockTypes: function () {
+      return blockTypes;
+    },
+    getItemByName: function () {
+      return itemByName;
+    },
+    getRecipeSortEngine: function () {
+      return recipeSortEngine;
+    },
+    getWisdomStat: function () {
+      return wisdomStat;
+    },
+  });
+
+  function wisdomSlicesOrderedForJobs(currentWisdom) {
+    return sortBind.wisdomSlicesOrderedForJobs(currentWisdom);
+  }
 
   function normalizeSecondarySortMode(v) {
     // Migration: old "nameSuffixWords" mode now maps to recipe-base mode.
@@ -63,309 +133,12 @@
   }
 
   /**
-   * Store price adjustment:
-   * V(s)=ceil(V0*(1±0.0025*s))
-   * + for selling, - for buying.
+   * Store price adjustment (implementation in {@link sort-permutation-core.js}).
+   * @param {number} [wisdomOverride] — when omitted, uses {@link wisdomStat}.
    */
-  function applyWisdomPriceModifier(base, isSelling) {
-    if (base == null || typeof base !== "number" || Number.isNaN(base)) return null;
-    const k = 0.0025;
-    const mult = 1 + (isSelling ? 1 : -1) * k * wisdomStat;
-    return Math.ceil(base * mult);
+  function applyWisdomPriceModifier(base, isSelling, wisdomOverride) {
+    return sortBind.applyWisdomPriceModifier(base, isSelling, wisdomOverride);
   }
-
-  const COLUMNS = [
-    { id: "icon", label: "Icon", sortable: false },
-    { id: "display", label: "Display name", sortable: true, type: "string" },
-    { id: "name", label: "Internal name", sortable: true, type: "string" },
-    { id: "objectType", label: "Object type", sortable: true, type: "string" },
-    { id: "buy", label: "Buy", sortable: true, type: "number" },
-    { id: "sell", label: "Sell", sortable: true, type: "number" },
-    {
-      id: "componentSell",
-      label: "Component sell",
-      sortable: true,
-      type: "number",
-    },
-    {
-      id: "profit",
-      label: "Profit",
-      sortable: true,
-      type: "number",
-    },
-    { id: "description", label: "Description", sortable: true, type: "string" },
-    { id: "dmgPhysical", label: "Dmg", sortable: true, type: "number" },
-    { id: "meleeTimeBetweenAttacks", label: "Atk interval", sortable: true, type: "number" },
-    { id: "meleeAttackRange", label: "Range", sortable: true, type: "number" },
-    { id: "dmgKnockback", label: "Knockback", sortable: true, type: "number" },
-    {
-      id: "rtPhysicalDamage",
-      label: "Physical dmg",
-      sortable: true,
-      type: "number",
-      rtDamageKey: "physicalDamage",
-    },
-    {
-      id: "rtElementalDamage",
-      label: "Elemental dmg",
-      sortable: true,
-      type: "number",
-      rtDamageKey: "elementalDamage",
-    },
-    {
-      id: "rtChemicalDamage",
-      label: "Chemical dmg",
-      sortable: true,
-      type: "number",
-      rtDamageKey: "chemicalDamage",
-    },
-    {
-      id: "rtKnockbackMagnitude",
-      label: "Knockback",
-      sortable: true,
-      type: "number",
-      rtDamageKey: "knockbackMagnitude",
-    },
-    {
-      id: "clothAirDrain",
-      label: "Air Drain",
-      sortable: true,
-      type: "number",
-      clothingEquipField: "airSupplyDecreaseRate",
-    },
-    {
-      id: "clothTraitWeight",
-      label: "Weight",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "weight",
-    },
-    {
-      id: "clothTraitHealth",
-      label: "Health",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "health",
-    },
-    {
-      id: "clothTraitStrength",
-      label: "Strength",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "strength",
-    },
-    {
-      id: "clothTraitAgility",
-      label: "Agility",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "agility",
-    },
-    {
-      id: "clothTraitIntelligence",
-      label: "Intelligence",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "intelligence",
-    },
-    {
-      id: "clothTraitArmour",
-      label: "Armour",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "armour",
-    },
-    {
-      id: "clothTraitElemRes",
-      label: "Elem res",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "elementalResistance",
-    },
-    {
-      id: "clothTraitChemRes",
-      label: "Chem res",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "chemicalResistance",
-    },
-    {
-      id: "clothTraitFallRes",
-      label: "Fall res",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "fallingResistance",
-    },
-    {
-      id: "clothTraitBuoyancy",
-      label: "Buoyancy",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "buoyancyPercent",
-    },
-    {
-      id: "clothTraitRegen",
-      label: "Regen",
-      sortable: true,
-      type: "number",
-      clothingTraitKey: "regeneration",
-    },
-    {
-      id: "plMass",
-      label: "Mass",
-      sortable: true,
-      type: "number",
-      placeableSetupStatKey: "mass",
-    },
-    {
-      id: "plBuoyancy",
-      label: "Buoyancy",
-      sortable: true,
-      type: "number",
-      placeableSetupStatKey: "buoyancy",
-    },
-    {
-      id: "plHitPoints",
-      label: "Hit points",
-      sortable: true,
-      type: "number",
-      placeableSetupStatKey: "hitPoints",
-    },
-    {
-      id: "pbImpactDmgMult",
-      label: "Impact dmg ×",
-      sortable: true,
-      type: "number",
-      placeBlockStatKey: "impactDamageMult",
-    },
-    {
-      id: "ghLatchRange",
-      label: "Latch range",
-      sortable: true,
-      type: "number",
-      grapplingHookStatKey: "latchRange",
-    },
-    {
-      id: "ghThrowRange",
-      label: "Throw range",
-      sortable: true,
-      type: "number",
-      grapplingHookStatKey: "throwRange",
-    },
-    {
-      id: "ppoMaxForce",
-      label: "Max force",
-      sortable: true,
-      type: "number",
-      propulsionSetupKey: "maxForce",
-    },
-    {
-      id: "ppoResponsiveness",
-      label: "Responsiveness",
-      sortable: true,
-      type: "number",
-      propulsionSetupKey: "responsiveness",
-    },
-    {
-      id: "peAvailableEnergy",
-      label: "Available energy",
-      sortable: true,
-      type: "number",
-      engineSetupKey: "availableEnergy",
-    },
-    {
-      id: "pgDamagePerChop",
-      label: "Damage / chop",
-      sortable: true,
-      type: "number",
-      grinderSetupKey: "damagePerChop",
-    },
-    {
-      id: "pgMinChopDelay",
-      label: "Chop min (s)",
-      sortable: true,
-      type: "number",
-      grinderSetupKey: "minChopDelay",
-    },
-    {
-      id: "pgMaxChopDelay",
-      label: "Chop max (s)",
-      sortable: true,
-      type: "number",
-      grinderSetupKey: "maxChopDelay",
-    },
-    {
-      id: "paMinShot",
-      label: "Shot min (s)",
-      sortable: true,
-      type: "number",
-      artilleryWeaponKey: "minTimeBetweenShots",
-    },
-    {
-      id: "paMaxShot",
-      label: "Shot max (s)",
-      sortable: true,
-      type: "number",
-      artilleryWeaponKey: "maxTimeBetweenShots",
-    },
-    {
-      id: "paMaxProjSpeed",
-      label: "Proj. speed max",
-      sortable: true,
-      type: "number",
-      artilleryWeaponKey: "maxProjectileSpeed",
-    },
-    {
-      id: "paPhysDmg",
-      label: "Physical damage",
-      sortable: true,
-      type: "number",
-      artilleryDamageKey: "physicalDamage",
-    },
-    {
-      id: "paKnockback",
-      label: "Knockback",
-      sortable: true,
-      type: "number",
-      artilleryDamageKey: "knockbackMagnitude",
-    },
-    { id: "json", label: "JSON", sortable: false },
-  ];
-
-  const COLUMN_BY_ID = {};
-  for (let i = 0; i < COLUMNS.length; i++) {
-    COLUMN_BY_ID[COLUMNS[i].id] = COLUMNS[i];
-  }
-
-  /** Shown when Object type filter is MeleeWeapon or JackHammer (both use `meleeWeaponSetupInfo`). */
-  const MELEE_WEAPON_OBJECT_TYPE = "MeleeWeapon";
-  const JACKHAMMER_OBJECT_TYPE = "JackHammer";
-  const RANGED_WEAPON_OBJECT_TYPE = "RangedWeapon";
-  const THROWABLE_WEAPON_OBJECT_TYPE = "ThrowableWeapon";
-  const CLOTHING_ITEM_OBJECT_TYPE = "ClothingItem";
-  const PLACE_BLOCK_ITEM_OBJECT_TYPE = "PlaceBlockItem";
-  const GRAPPLING_HOOK_OBJECT_TYPE = "GrapplingHook";
-  const PLACE_PROPULSION_OBJECT_ITEM_TYPE = "PlacePropulsionObjectItem";
-  const PLACE_ENGINE_OBJECT_ITEM_TYPE = "PlaceEngineObjectItem";
-  const PLACE_GRINDER_OBJECT_ITEM_TYPE = "PlaceGrinderObjectItem";
-  const PLACE_OBJECT_ITEM_TYPE = "PlaceObjectItem";
-  const PLACE_SHIP_SCAFFOLDING_ITEM_TYPE = "PlaceShipScaffoldingItem";
-  const PLACE_ARTILLERY_SHIP_ITEM_TYPE = "PlaceArtilleryShipItem";
-
-  /**
-   * objectTypes that show shared mass / buoyancy / hit points columns (`pl*`).
-   * Most read `placeableSetupInfo`; PlaceBlockItem reads `sharedblockinfo.json` via `blockType`.
-   */
-  const PLACEABLE_SETUP_STAT_OBJECT_TYPES = [
-    PLACE_BLOCK_ITEM_OBJECT_TYPE,
-    PLACE_PROPULSION_OBJECT_ITEM_TYPE,
-    PLACE_ENGINE_OBJECT_ITEM_TYPE,
-    PLACE_GRINDER_OBJECT_ITEM_TYPE,
-    PLACE_OBJECT_ITEM_TYPE,
-    PLACE_SHIP_SCAFFOLDING_ITEM_TYPE,
-    PLACE_ARTILLERY_SHIP_ITEM_TYPE,
-  ];
-  const PLACEABLE_SETUP_STAT_TYPE_SET = new Set(PLACEABLE_SETUP_STAT_OBJECT_TYPES);
 
   const MELEE_STATS_COLUMN_IDS = {
     dmgPhysical: true,
@@ -437,13 +210,13 @@
 
   function getPlaceBlockStatSortValue(item, key) {
     const row = getPlaceBlockStatsRow(item);
-    const v = row[key];
-    return v;
+    if (!row) return null;
+    return row[key];
   }
 
   function placeBlockStatCell(item, key) {
     const row = getPlaceBlockStatsRow(item);
-    const v = row[key];
+    const v = row ? row[key] : null;
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
@@ -461,13 +234,13 @@
 
   function getGrapplingHookStatSortValue(item, key) {
     const g = getGrapplingHookSetup(item);
-    const v = g[key];
-    return v;
+    if (!g) return null;
+    return g[key];
   }
 
   function grapplingHookStatCell(item, key) {
     const g = getGrapplingHookSetup(item);
-    const v = g[key];
+    const v = g ? g[key] : null;
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
@@ -494,8 +267,8 @@
       return getPlaceBlockStatSortValue(item, key);
     }
     const p = item.placeableSetupInfo;
-    const v = p[key];
-    return v;
+    if (!p) return null;
+    return p[key];
   }
 
   function placeableSetupStatCell(item, key) {
@@ -516,8 +289,8 @@
 
   function getPropulsionPlaceItemStatSortValue(item, def) {
     const p = item.propulsionSetupInfo;
-    const v = p[def.propulsionSetupKey];
-    return v;
+    if (!p) return null;
+    return p[def.propulsionSetupKey];
   }
 
   function propulsionPlaceItemStatCell(item, def) {
@@ -535,8 +308,8 @@
 
   function getEnginePlaceItemStatSortValue(item, def) {
     const e = item.engineSetupInfo;
-    const v = e[def.engineSetupKey];
-    return v;
+    if (!e) return null;
+    return e[def.engineSetupKey];
   }
 
   function enginePlaceItemStatCell(item, def) {
@@ -554,8 +327,8 @@
 
   function getGrinderPlaceItemStatSortValue(item, def) {
     const g = item.grinderSetupInfo;
-    const v = g[def.grinderSetupKey];
-    return v;
+    if (!g) return null;
+    return g[def.grinderSetupKey];
   }
 
   function grinderPlaceItemStatCell(item, def) {
@@ -577,20 +350,22 @@
 
   function getArtilleryDamageDesc(item) {
     const w = getArtilleryPlaceableWeapon(item);
+    if (!w) return null;
     const g = w.grenadeSetupInfo;
+    if (!g || g.damageDesc == null) return null;
     return g.damageDesc;
   }
 
   function getArtilleryShipItemStatSortValue(item, def) {
     if (def.artilleryWeaponKey) {
       const w = getArtilleryPlaceableWeapon(item);
-      const v = w[def.artilleryWeaponKey];
-      return v;
+      if (!w) return null;
+      return w[def.artilleryWeaponKey];
     }
     if (def.artilleryDamageKey) {
       const d = getArtilleryDamageDesc(item);
-      const v = d[def.artilleryDamageKey];
-      return v;
+      if (!d) return null;
+      return d[def.artilleryDamageKey];
     }
     return null;
   }
@@ -605,22 +380,25 @@
   }
 
   function clothingTraitRawString(equip, key) {
+    if (!equip || !equip.characterTraits) return "";
     const t = equip.characterTraits;
     const v = t[key];
+    if (v == null) return "";
     return typeof v === "string" ? v : String(v);
   }
 
   function clothingTraitNumberForSort(equip, key) {
     const s = clothingTraitRawString(equip, key);
+    if (!s) return null;
     const n = parseFloat(s);
     return Number.isNaN(n) ? null : n;
   }
 
   function getClothingStatSortValue(item, colDef) {
     const e = getClothingEquipSetup(item);
+    if (!e) return null;
     if (colDef.clothingEquipField) {
-      const v = e[colDef.clothingEquipField];
-      return v;
+      return e[colDef.clothingEquipField];
     }
     if (colDef.clothingTraitKey) {
       return clothingTraitNumberForSort(e, colDef.clothingTraitKey);
@@ -631,6 +409,9 @@
   /** Non-clothing rows get ""; 0-like trait values render empty (like weapon stat cells). */
   function clothingStatCell(item, colDef) {
     const e = getClothingEquipSetup(item);
+    if (!e) {
+      return formatCatalogStatNumber(null, { hideZero: true });
+    }
     if (colDef.clothingEquipField) {
       const v = e[colDef.clothingEquipField];
       return formatCatalogStatNumber(v, { hideZero: true });
@@ -646,14 +427,17 @@
     throw new Error("Bad clothing column def");
   }
 
+  /** @returns {object|null} */
   function getRangedOrThrowableDamageDesc(item) {
     if (item.objectType === RANGED_WEAPON_OBJECT_TYPE) {
       const r = item.rangedWeaponSetupInfo;
+      if (!r || r.damageDesc == null) return null;
       return r.damageDesc;
     }
     if (item.objectType === THROWABLE_WEAPON_OBJECT_TYPE) {
       const t = item.throwableItemSetupInfo;
       const g = t && t.grenadeSetupInfo;
+      if (!g || g.damageDesc == null) return null;
       return g.damageDesc;
     }
     return null;
@@ -662,7 +446,7 @@
   /** RangedWeapon / ThrowableWeapon damage field: 0 renders empty (like melee). */
   function rtDamageNumberCell(item, key) {
     const d = getRangedOrThrowableDamageDesc(item);
-    const v = d[key];
+    const v = d ? d[key] : null;
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
@@ -1131,9 +915,7 @@
   }
 
   function displayName(item) {
-    const inv = item.inventorySetupInfo;
-    const s = inv.itemDisplayName;
-    return s && s.trim() ? s.trim() : item.name;
+    return sortBind.displayName(item);
   }
 
   /** @type {HTMLElement | null} */
@@ -1932,8 +1714,7 @@
   }
 
   function description(item) {
-    const inv = item.inventorySetupInfo;
-    return inv.itemDescription;
+    return sortBind.description(item);
   }
 
   /**
@@ -2018,38 +1799,31 @@
   }
 
   function getMeleeWeaponSetup(item) {
-    const m = item.meleeWeaponSetupInfo;
-    return m;
+    return sortBind.getMeleeWeaponSetup(item);
   }
 
+  /** @returns {object|null} `damageDesc` or null when item has no melee damage block. */
   function getMeleeDamageDesc(item) {
-    const m = getMeleeWeaponSetup(item);
-    const d = m.damageDesc;
-    return d;
+    return sortBind.getMeleeDamageDesc(item);
   }
 
   /** MeleeWeapon / JackHammer numeric damage fields: 0 renders as empty; others empty cell. */
   function meleeDamageNumberCell(item, key) {
     const d = getMeleeDamageDesc(item);
-    const v = d[key];
+    const v = d ? d[key] : null;
     return formatCatalogStatNumber(v, { hideZero: true });
   }
 
   /** Top-level `meleeWeaponSetupInfo` numeric fields (e.g. timeBetweenAttacks, attackRange). */
   function meleeSetupNumberCell(item, key) {
     const m = getMeleeWeaponSetup(item);
-    const v = m[key];
+    const v = m ? m[key] : null;
     return formatCatalogStatNumber(v, {});
   }
 
-  function prices(item) {
-    const inv = item.inventorySetupInfo;
-    const buy = inv.buyPrice;
-    const sell = inv.sellPrice;
-    return {
-      buy: applyWisdomPriceModifier(buy, false),
-      sell: applyWisdomPriceModifier(sell, true),
-    };
+  /** @param {number} [wisdomOverride] — omit for live {@link wisdomStat}. */
+  function prices(item, wisdomOverride) {
+    return sortBind.prices(item, wisdomOverride);
   }
 
   /**
@@ -2058,55 +1832,18 @@
    * For items with multiple recipe variants, we take the minimum cost variant.
    * Returns `null` when no complete recipe can be costed.
    */
-  function componentSellPrice(item) {
-    const recipes = data.recipesByProduct && data.recipesByProduct[item.name];
-    if (!recipes) return null;
-    
-    let best = null;
-    for (let i = 0; i < recipes.length; i++) {
-      const rec = recipes[i];
-      const ings = rec.ingredients || [];
-      const outQty =
-        rec.craftQuantity != null && typeof rec.craftQuantity === "number" ? rec.craftQuantity : 1;
-      const outDiv = outQty > 0 ? outQty : 1;
-
-      let sum = 0;
-      let valid = true;
-      for (let j = 0; j < ings.length; j++) {
-        const ing = ings[j];
-        const sub = itemByName.get(ing.name);
-        if (!sub) {
-          valid = false;
-          break;
-        }
-        const inv = sub.inventorySetupInfo;
-        const sp = inv ? applyWisdomPriceModifier(inv.sellPrice, true) : null;
-        if (sp == null) {
-          valid = false;
-          break;
-        }
-        const qty = ing.quantity != null && typeof ing.quantity === "number" ? ing.quantity : 1;
-        sum += sp * qty;
-      }
-
-      if (!valid) continue;
-      const perOutput = Math.ceil(sum / outDiv);
-      if (best == null || perOutput < best) best = perOutput;
-    }
-    return best;
+  /** @param {number} [wisdomOverride] — omit for live {@link wisdomStat}. */
+  function componentSellPrice(item, wisdomOverride) {
+    return sortBind.componentSellPrice(item, wisdomOverride);
   }
 
   /**
    * Profit = sell price - (ingredient sell cost) for 1 output item.
    * Returns `null` when sell price or component cost can't be computed.
    */
-  function profitValue(item) {
-    const pr = prices(item);
-    const sell = pr && typeof pr.sell === "number" ? pr.sell : null;
-    if (sell == null) return null;
-    const comp = componentSellPrice(item);
-    if (comp == null) return null;
-    return sell - comp;
+  /** @param {number} [wisdomOverride] — omit for live {@link wisdomStat}. */
+  function profitValue(item, wisdomOverride) {
+    return sortBind.profitValue(item, wisdomOverride);
   }
 
   /** e.g. 1000000 → "1 000 000" (rounded to integer; spaces between thousands). */
@@ -3018,23 +2755,26 @@
   }
 
   function getStatValueFromColumnDef(item, def) {
-    if (def.rtDamageKey) return getRangedOrThrowableDamageDesc(item)[def.rtDamageKey];
-    if (isClothingStatColumnDef(def)) return getClothingStatSortValue(item, def);
-    if (def.placeBlockStatKey) return getPlaceBlockStatSortValue(item, def.placeBlockStatKey);
-    if (def.grapplingHookStatKey) return getGrapplingHookStatSortValue(item, def.grapplingHookStatKey);
-    if (def.placeableSetupStatKey) return getPlaceableSetupStatSortValue(item, def.placeableSetupStatKey);
-    if (isPropulsionPlaceItemStatColumnDef(def)) return getPropulsionPlaceItemStatSortValue(item, def);
-    if (isEnginePlaceItemStatColumnDef(def)) return getEnginePlaceItemStatSortValue(item, def);
-    if (isGrinderPlaceItemStatColumnDef(def)) return getGrinderPlaceItemStatSortValue(item, def);
-    if (isArtilleryShipItemStatColumnDef(def)) return getArtilleryShipItemStatSortValue(item, def);
-        return "";
-      }
+    return sortBind.getStatValueFromColumnDef(item, def);
+  }
 
   function getCatalogStatDisplayNumber(item, colId) {
-    if (colId === "dmgPhysical") return getMeleeDamageDesc(item).physicalDamage;
-    if (colId === "meleeTimeBetweenAttacks") return getMeleeWeaponSetup(item).timeBetweenAttacks;
-    if (colId === "meleeAttackRange") return getMeleeWeaponSetup(item).attackRange;
-    if (colId === "dmgKnockback") return getMeleeDamageDesc(item).knockbackMagnitude;
+    if (colId === "dmgPhysical") {
+      const d = getMeleeDamageDesc(item);
+      return d && typeof d.physicalDamage === "number" ? d.physicalDamage : null;
+    }
+    if (colId === "meleeTimeBetweenAttacks") {
+      const m = getMeleeWeaponSetup(item);
+      return m && typeof m.timeBetweenAttacks === "number" ? m.timeBetweenAttacks : null;
+    }
+    if (colId === "meleeAttackRange") {
+      const m = getMeleeWeaponSetup(item);
+      return m && typeof m.attackRange === "number" ? m.attackRange : null;
+    }
+    if (colId === "dmgKnockback") {
+      const d = getMeleeDamageDesc(item);
+      return d && typeof d.knockbackMagnitude === "number" ? d.knockbackMagnitude : null;
+    }
     const def = COLUMN_BY_ID[colId];
     if (!def) return null;
     const v = getStatValueFromColumnDef(item, def);
@@ -3182,71 +2922,447 @@
     td.textContent = v === "" ? "" : String(v);
   }
 
-  /** Null / undefined / NaN: always sort after real numbers (asc and desc). */
-  function sortNumberMissing(v) {
-    return v == null || (typeof v === "number" && Number.isNaN(v));
+  /**
+   * @param {number} [wisdomForPrices] — for buy/sell/component/profit only; omit for live {@link wisdomStat}.
+   */
+  function getSortValue(item, colId, wisdomForPrices) {
+    return sortBind.getSortValue(item, colId, wisdomForPrices);
   }
 
-  function getSortValue(item, colId) {
-    if (colId === "display") return displayName(item).toLowerCase();
-    if (colId === "name") return (item.name || "").toLowerCase();
-    if (colId === "objectType") return (item.objectType || "").toLowerCase();
-    if (colId === "buy") return prices(item).buy;
-    if (colId === "sell") return prices(item).sell;
-    if (colId === "componentSell") return componentSellPrice(item);
-    if (colId === "profit") return profitValue(item);
-    if (colId === "description") return description(item).toLowerCase();
-    if (colId === "dmgPhysical") return getMeleeDamageDesc(item).physicalDamage;
-    if (colId === "meleeTimeBetweenAttacks") return getMeleeWeaponSetup(item).timeBetweenAttacks;
-    if (colId === "meleeAttackRange") return getMeleeWeaponSetup(item).attackRange;
-    if (colId === "dmgKnockback") return getMeleeDamageDesc(item).knockbackMagnitude;
-    const def = COLUMN_BY_ID[colId];
-    return def ? getStatValueFromColumnDef(item, def) : "";
+  /**
+   * @param {number} ia
+   * @param {number} ib
+   * @param {{ col: string, dir: 1|-1, secondary: string, wisdom: number }} state
+   */
+  function compareItemIndices(ia, ib, state) {
+    return sortBind.compareItemIndices(ia, ib, state);
   }
 
   function compareItems(a, b) {
-    const col = sortColumn;
-    const def = COLUMN_BY_ID[col];
-    const dir = sortDir === "asc" ? 1 : -1;
-    const va = getSortValue(a, col);
-    const vb = getSortValue(b, col);
+    const ia = itemIndexByName.get(a.name);
+    const ib = itemIndexByName.get(b.name);
+    if (ia === undefined || ib === undefined) {
+      return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true });
+    }
+    return compareItemIndices(ia, ib, {
+      col: sortColumn,
+      dir: sortDir === "asc" ? 1 : -1,
+      secondary: secondarySortMode,
+      wisdom: wisdomStat,
+    });
+  }
 
-    if (def && def.type === "number") {
-      const aMiss = sortNumberMissing(va);
-      const bMiss = sortNumberMissing(vb);
-      if (aMiss || bMiss) {
-        if (aMiss && bMiss) return 0;
-        if (aMiss) return 1;
-        return -1;
+  function sortCacheKey(col, dirStr, secondary, wisdomSlice) {
+    return sortBind.sortCacheKey(col, dirStr, secondary, wisdomSlice);
+  }
+
+  function ensurePriceMatricesForPrecomputedSlices() {
+    sortBind.ensurePriceMatricesForPrecomputedSlices();
+  }
+
+  function buildSortPermutation(state) {
+    return sortBind.buildSortPermutation(state);
+  }
+
+  /**
+   * @returns {{ col: string, dirStr: string, dir: 1|-1, secondary: string, wisdomSlice: number }[]}
+   */
+  function collectSortCacheJobSpecs(currentWisdom) {
+    return sortBind.collectSortCacheJobSpecs(currentWisdom);
+  }
+
+  /**
+   * How many workers to use for permutation jobs (matrices are built once separately when this is 2+).
+   * @param {number} jobCount
+   */
+  function getSortCachePermWorkerCount(jobCount) {
+    if (jobCount <= 0) return 0;
+    let hc = 4;
+    if (typeof navigator !== "undefined" && navigator.hardwareConcurrency) {
+      hc = navigator.hardwareConcurrency;
+    }
+    return Math.max(1, Math.min(SORT_CACHE_PERM_WORKER_CAP, hc, jobCount));
+  }
+
+  /**
+   * @template T
+   * @param {T[]} jobs
+   * @param {number} k
+   * @returns {T[][]}
+   */
+  function splitJobsIntoChunks(jobs, k) {
+    /** @type {T[][]} */
+    const chunks = new Array(k);
+    const n = jobs.length;
+    if (k <= 0) return chunks;
+    if (n === 0) {
+      for (let i = 0; i < k; i++) {
+        chunks[i] = [];
       }
-      const na = Number(va);
-      const nb = Number(vb);
-      if (na !== nb) return (na - nb) * dir;
+      return chunks;
+    }
+    const base = Math.floor(n / k);
+    const rem = n % k;
+    let off = 0;
+    for (let i = 0; i < k; i++) {
+      const sz = i < rem ? base + 1 : base;
+      chunks[i] = jobs.slice(off, off + sz);
+      off += sz;
+    }
+    return chunks;
+  }
+
+  function terminateSortCacheWorkers() {
+    for (let i = 0; i < sortCacheWorkers.length; i++) {
+      const w = sortCacheWorkers[i];
+      if (w) {
+        w.onmessage = null;
+        w.onerror = null;
+        w.terminate();
+      }
+    }
+    sortCacheWorkers = [];
+  }
+
+  function terminateSortCacheMatrixWorker() {
+    if (!sortCacheMatrixWorker) return;
+    sortCacheMatrixWorker.onmessage = null;
+    sortCacheMatrixWorker.onerror = null;
+    sortCacheMatrixWorker.terminate();
+    sortCacheMatrixWorker = null;
+  }
+
+  function cancelBackgroundSortPermCacheBuild() {
+    terminateSortCacheMatrixWorker();
+    terminateSortCacheWorkers();
+    if (sortPermCacheIdleId == null) return;
+    if (typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(sortPermCacheIdleId);
     } else {
-      let c;
-      if (secondarySortMode === SECONDARY_SORT_RECIPE_BASE) {
-        if (col === "name") {
-          c = recipeSortEngine.compareByRecipeBaseThenName(a.name || "", b.name || "");
-        } else {
-          const sa = String(va ?? "");
-          const sb = String(vb ?? "");
-          c = sa.localeCompare(sb, undefined, { sensitivity: "base", numeric: true });
-        }
+      clearTimeout(sortPermCacheIdleId);
+    }
+    sortPermCacheIdleId = null;
+  }
+
+  function applySortMatricesFromWorker(n, buyBuf, sellBuf, compBuf, profitBuf) {
+    sortBind.applyMatricesFromWorkerBuffers(n, buyBuf, sellBuf, compBuf, profitBuf);
+  }
+
+  function updateSortPrecalcDebugPanel() {
+    const root = document.getElementById("sort-precalc-debug");
+    const countEl = document.getElementById("sort-precalc-count");
+    const totalEl = document.getElementById("sort-precalc-total");
+    const fillEl = document.getElementById("sort-precalc-bar-fill");
+    const barEl = document.getElementById("sort-precalc-bar");
+    if (!root || !countEl || !totalEl || !fillEl || !barEl) return;
+    const total = sortCacheJobTotalCount;
+    const done = sortPermCache.size;
+    countEl.textContent = String(done);
+    totalEl.textContent = String(total);
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 1000) / 10) : 100;
+    fillEl.style.width = pct + "%";
+    barEl.setAttribute("aria-valuenow", String(Math.round(pct)));
+    barEl.setAttribute("aria-valuemin", "0");
+    barEl.setAttribute("aria-valuemax", "100");
+  }
+
+  function scheduleIdleSortCacheBuild(epoch, jobs) {
+    let ji = 0;
+
+    function scheduleNext() {
+      if (typeof requestIdleCallback === "function") {
+        sortPermCacheIdleId = requestIdleCallback(runIdle, { timeout: 8000 });
       } else {
-        const sa = String(va ?? "");
-        const sb = String(vb ?? "");
-        c = sa.localeCompare(sb, undefined, { sensitivity: "base", numeric: true });
+        sortPermCacheIdleId = setTimeout(runTimeout, 0);
       }
-      if (c !== 0) return c * dir;
     }
 
-    if (
-      secondarySortMode === SECONDARY_SORT_RECIPE_BASE &&
-      col !== "name"
-    ) {
-      return recipeSortEngine.compareByRecipeBaseThenName(a.name || "", b.name || "");
+    function runIdle(deadline) {
+      sortPermCacheIdleId = null;
+      if (epoch !== sortCacheBuildEpoch) return;
+      ensurePriceMatricesForPrecomputedSlices();
+      while (ji < jobs.length) {
+        if (
+          deadline &&
+          typeof deadline.timeRemaining === "function" &&
+          deadline.timeRemaining() < 2
+        ) {
+          scheduleNext();
+          return;
+        }
+        const job = jobs[ji++];
+        const key = sortCacheKey(
+          job.col,
+          job.dirStr,
+          job.secondary,
+          job.wisdomSlice
+        );
+        if (sortPermCache.has(key)) continue;
+        const perm = buildSortPermutation({
+          col: job.col,
+          dir: job.dir,
+          secondary: job.secondary,
+          wisdom: job.wisdomSlice,
+        });
+        sortPermCache.set(key, perm);
+        updateSortPrecalcDebugPanel();
+      }
+      updateSortPrecalcDebugPanel();
     }
-    return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true });
+
+    function runTimeout() {
+      sortPermCacheIdleId = null;
+      if (epoch !== sortCacheBuildEpoch) return;
+      ensurePriceMatricesForPrecomputedSlices();
+      while (ji < jobs.length) {
+        const job = jobs[ji++];
+        const key = sortCacheKey(
+          job.col,
+          job.dirStr,
+          job.secondary,
+          job.wisdomSlice
+        );
+        if (sortPermCache.has(key)) continue;
+        const perm = buildSortPermutation({
+          col: job.col,
+          dir: job.dir,
+          secondary: job.secondary,
+          wisdom: job.wisdomSlice,
+        });
+        sortPermCache.set(key, perm);
+        updateSortPrecalcDebugPanel();
+        break;
+      }
+      if (ji < jobs.length) {
+        scheduleNext();
+      } else {
+        updateSortPrecalcDebugPanel();
+      }
+    }
+
+    if (jobs.length === 0) {
+      updateSortPrecalcDebugPanel();
+      return;
+    }
+    scheduleNext();
+  }
+
+  /**
+   * Fills {@link sortPermCache} after load: prefers a Web Worker; falls back to idle callbacks.
+   * Price-column jobs use {@link wisdomSlicesOrderedForJobs} so the current wisdom slice is built first.
+   */
+  function scheduleBackgroundSortPermCacheBuild() {
+    cancelBackgroundSortPermCacheBuild();
+    const epoch = sortCacheBuildEpoch;
+    const cw = wisdomStat;
+    sortCacheJobTotalCount =
+      data.ItemList.length === 0 ? 0 : collectSortCacheJobSpecs(cw).length;
+    const allJobs = collectSortCacheJobSpecs(cw);
+    const pendingJobs = [];
+    for (let i = 0; i < allJobs.length; i++) {
+      const job = allJobs[i];
+      const key = sortCacheKey(job.col, job.dirStr, job.secondary, job.wisdomSlice);
+      if (!sortPermCache.has(key)) pendingJobs.push(job);
+    }
+
+    const debugRoot = document.getElementById("sort-precalc-debug");
+    if (debugRoot) debugRoot.hidden = false;
+    updateSortPrecalcDebugPanel();
+
+    if (pendingJobs.length === 0) {
+      updateSortPrecalcDebugPanel();
+      return;
+    }
+
+    if (typeof Worker !== "undefined") {
+      try {
+        const sortWorkerPayload = {
+          ItemList: data.ItemList,
+          recipesByProduct: data.recipesByProduct,
+          recipesByIngredient: data.recipesByIngredient,
+          blockTypes: blockTypes,
+        };
+
+        function hideSortPrecalcWhenComplete() {
+          setTimeout(function () {
+            const r = document.getElementById("sort-precalc-debug");
+            if (
+              r &&
+              sortCacheJobTotalCount > 0 &&
+              sortPermCache.size >= sortCacheJobTotalCount
+            ) {
+              r.hidden = true;
+            }
+          }, 2500);
+        }
+
+        function failSortCacheWorkerBuild(ev, fallbackMsg) {
+          const msg =
+            ev && typeof ev === "object" && "message" in ev && ev.message
+              ? ev.message
+              : fallbackMsg || "[Windforge item catalog] sort-cache worker error";
+          console.warn(msg, ev);
+          terminateSortCacheMatrixWorker();
+          terminateSortCacheWorkers();
+          scheduleIdleSortCacheBuild(epoch, pendingJobs);
+        }
+
+        let permWorkersRemaining = 0;
+
+        function attachPermWorkerHandlers(w) {
+          w.onmessage = function (ev) {
+            const m = ev.data;
+            if (!m || m.epoch !== epoch || m.epoch !== sortCacheBuildEpoch) return;
+            if (m.type === "job") {
+              sortPermCache.set(m.key, new Int32Array(m.perm));
+              updateSortPrecalcDebugPanel();
+              return;
+            }
+            if (m.type === "done") {
+              permWorkersRemaining--;
+              if (permWorkersRemaining <= 0) {
+                terminateSortCacheWorkers();
+                updateSortPrecalcDebugPanel();
+                hideSortPrecalcWhenComplete();
+              }
+              return;
+            }
+            if (m.type === "error") {
+              console.warn("[Windforge item catalog] sort-cache worker:", m.message);
+              failSortCacheWorkerBuild(null, m.message);
+            }
+          };
+          w.onerror = function (ev) {
+            failSortCacheWorkerBuild(
+              ev,
+              "[Windforge item catalog] sort-cache worker load error"
+            );
+          };
+        }
+
+        const permCount = getSortCachePermWorkerCount(pendingJobs.length);
+        if (permCount <= 1) {
+          const w = new Worker("sort-cache-worker.js");
+          sortCacheWorkers = [w];
+          permWorkersRemaining = 1;
+          attachPermWorkerHandlers(w);
+          w.postMessage({
+            type: "run",
+            epoch: epoch,
+            payload: sortWorkerPayload,
+            jobs: pendingJobs,
+          });
+          return;
+        }
+
+        sortCacheMatrixWorker = new Worker("sort-cache-worker.js");
+        sortCacheMatrixWorker.onmessage = function (ev) {
+          const m = ev.data;
+          if (!m || m.epoch !== epoch || m.epoch !== sortCacheBuildEpoch) return;
+          if (m.type === "matrices") {
+            applySortMatricesFromWorker(m.n, m.buy, m.sell, m.comp, m.profit);
+            terminateSortCacheMatrixWorker();
+            if (epoch !== sortCacheBuildEpoch) return;
+            const k = getSortCachePermWorkerCount(pendingJobs.length);
+            const chunks = splitJobsIntoChunks(pendingJobs, k);
+            permWorkersRemaining = k;
+            sortCacheWorkers = [];
+            for (let i = 0; i < k; i++) {
+              const pw = new Worker("sort-cache-worker.js");
+              sortCacheWorkers.push(pw);
+              attachPermWorkerHandlers(pw);
+              const buyBuf = m.buy.slice(0);
+              const sellBuf = m.sell.slice(0);
+              const compBuf = m.comp.slice(0);
+              const profitBuf = m.profit.slice(0);
+              pw.postMessage(
+                {
+                  type: "runPermutations",
+                  epoch: epoch,
+                  payload: sortWorkerPayload,
+                  jobs: chunks[i],
+                  n: m.n,
+                  buy: buyBuf,
+                  sell: sellBuf,
+                  comp: compBuf,
+                  profit: profitBuf,
+                },
+                [buyBuf, sellBuf, compBuf, profitBuf]
+              );
+            }
+            return;
+          }
+          if (m.type === "error") {
+            console.warn("[Windforge item catalog] sort-cache matrix worker:", m.message);
+            failSortCacheWorkerBuild(null, m.message);
+          }
+        };
+        sortCacheMatrixWorker.onerror = function (ev) {
+          failSortCacheWorkerBuild(
+            ev,
+            "[Windforge item catalog] sort-cache matrix worker load error"
+          );
+        };
+        sortCacheMatrixWorker.postMessage({
+          type: "buildMatrices",
+          epoch: epoch,
+          payload: sortWorkerPayload,
+        });
+        return;
+      } catch (e) {
+        console.warn("[Windforge item catalog] Worker unavailable, using idle sort build", e);
+        terminateSortCacheMatrixWorker();
+        terminateSortCacheWorkers();
+      }
+    }
+
+    scheduleIdleSortCacheBuild(epoch, pendingJobs);
+  }
+
+  /**
+   * After a synchronous filter+sort, record the full-list permutation for this key on idle so the
+   * background builder skips it and later renders can use the fast path.
+   */
+  function scheduleSortPermCacheFill(col, dirStr, secondary, wisdomSlice) {
+    const permKey = sortCacheKey(col, dirStr, secondary, wisdomSlice);
+    if (sortPermCache.has(permKey)) return;
+    const epoch = sortCacheBuildEpoch;
+    function run() {
+      if (epoch !== sortCacheBuildEpoch) return;
+      if (sortPermCache.has(permKey)) return;
+      if (
+        PRICE_SORT_COLUMN_IDS.has(col) &&
+        PRECOMPUTED_WISDOM_SLICE_SET.has(wisdomSlice)
+      ) {
+        ensurePriceMatricesForPrecomputedSlices();
+      }
+      const dir = dirStr === "asc" ? 1 : -1;
+      const perm = buildSortPermutation({
+        col: col,
+        dir: dir,
+        secondary: secondary,
+        wisdom: wisdomSlice,
+      });
+      if (epoch !== sortCacheBuildEpoch) return;
+      if (sortPermCache.has(permKey)) return;
+      sortPermCache.set(permKey, perm);
+    }
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 4000 });
+    } else {
+      setTimeout(run, 0);
+    }
+  }
+
+  function rebuildItemIndexByName() {
+    itemIndexByName.clear();
+    const items = data.ItemList;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it && typeof it.name === "string" && it.name) {
+        itemIndexByName.set(it.name, i);
+      }
+    }
   }
 
   function buildThead() {
@@ -3439,34 +3555,50 @@
         }
         case "dmgPhysical": {
           td.className = "num col-melee-dmg";
-          td.textContent = formatCatalogStatNumber(getMeleeDamageDesc(item).physicalDamage, {
-            hideZero: true,
-            decimals: getColumnStatDecimals("dmgPhysical"),
-          });
+          const dPhys = getMeleeDamageDesc(item);
+          td.textContent = formatCatalogStatNumber(
+            dPhys && typeof dPhys.physicalDamage === "number" ? dPhys.physicalDamage : null,
+            {
+              hideZero: true,
+              decimals: getColumnStatDecimals("dmgPhysical"),
+            }
+          );
           break;
         }
         case "meleeTimeBetweenAttacks": {
           td.className = "num col-melee-dmg";
-          td.textContent = formatCatalogStatNumber(getMeleeWeaponSetup(item).timeBetweenAttacks, {
-            hideZero: false,
-            decimals: getColumnStatDecimals("meleeTimeBetweenAttacks"),
-          });
+          const mAtk = getMeleeWeaponSetup(item);
+          td.textContent = formatCatalogStatNumber(
+            mAtk && typeof mAtk.timeBetweenAttacks === "number" ? mAtk.timeBetweenAttacks : null,
+            {
+              hideZero: false,
+              decimals: getColumnStatDecimals("meleeTimeBetweenAttacks"),
+            }
+          );
           break;
         }
         case "meleeAttackRange": {
           td.className = "num col-melee-dmg";
-          td.textContent = formatCatalogStatNumber(getMeleeWeaponSetup(item).attackRange, {
-            hideZero: false,
-            decimals: getColumnStatDecimals("meleeAttackRange"),
-          });
+          const mRng = getMeleeWeaponSetup(item);
+          td.textContent = formatCatalogStatNumber(
+            mRng && typeof mRng.attackRange === "number" ? mRng.attackRange : null,
+            {
+              hideZero: false,
+              decimals: getColumnStatDecimals("meleeAttackRange"),
+            }
+          );
           break;
         }
         case "dmgKnockback": {
           td.className = "num col-melee-dmg";
-          td.textContent = formatCatalogStatNumber(getMeleeDamageDesc(item).knockbackMagnitude, {
-            hideZero: true,
-            decimals: getColumnStatDecimals("dmgKnockback"),
-          });
+          const dKb = getMeleeDamageDesc(item);
+          td.textContent = formatCatalogStatNumber(
+            dKb && typeof dKb.knockbackMagnitude === "number" ? dKb.knockbackMagnitude : null,
+            {
+              hideZero: true,
+              decimals: getColumnStatDecimals("dmgKnockback"),
+            }
+          );
           break;
         }
         case "json": {
@@ -3799,15 +3931,6 @@
     const t0 = profile ? performance.now() : 0;
 
     const q = (document.getElementById("q").value || "").trim();
-    let list = data.ItemList.filter(function (it) {
-      return (
-        matchesQuery(it, q) &&
-          matchesObjectTypeFilter(it) &&
-          passesSpecialFilters(it) &&
-          passesTierVariantFilters(it)
-      );
-    });
-    const t1 = profile ? performance.now() : 0;
 
     if (isObjectTypeFiltered() && sortColumn === "objectType") {
       sortColumn = "display";
@@ -3882,11 +4005,52 @@
       sortColumn = "display";
     }
 
-    list.sort(compareItems);
+    const t1 = profile ? performance.now() : 0;
+
+    const dirStr = sortDir === "asc" ? "asc" : "desc";
+    const wisdomSlice = PRICE_SORT_COLUMN_IDS.has(sortColumn) ? wisdomStat : 0;
+    const permKey = sortCacheKey(sortColumn, dirStr, secondarySortMode, wisdomSlice);
+    const perm = sortPermCache.get(permKey);
+    const nItems = data.ItemList.length;
+
+    let list;
+    if (perm && perm.length === nItems) {
+      list = [];
+      for (let pi = 0; pi < perm.length; pi++) {
+        const item = data.ItemList[perm[pi]];
+        if (
+          matchesQuery(item, q) &&
+          matchesObjectTypeFilter(item) &&
+          passesSpecialFilters(item) &&
+          passesTierVariantFilters(item)
+        ) {
+          list.push(item);
+        }
+      }
+    } else {
+      list = data.ItemList.filter(function (it) {
+        return (
+          matchesQuery(it, q) &&
+          matchesObjectTypeFilter(it) &&
+          passesSpecialFilters(it) &&
+          passesTierVariantFilters(it)
+        );
+      });
+      list.sort(compareItems);
+      scheduleSortPermCacheFill(
+        sortColumn,
+        dirStr,
+        secondarySortMode,
+        wisdomSlice
+      );
+    }
+
     const t2 = profile ? performance.now() : 0;
 
     statColumnDecimalsById = computeStatColumnDecimalsForList(list);
+    const t2d = profile ? performance.now() : 0;
     statColumnWidthPxById = computeStatColumnWidthsForList(list, statColumnDecimalsById);
+    const t2w = profile ? performance.now() : 0;
     buildColgroup();
     buildThead();
     const t3 = profile ? performance.now() : 0;
@@ -3907,7 +4071,20 @@
     }
     renderVirtualBody();
     ensureVirtualScrollListeners();
-    recipeSortEngine.validateRecipeSortTokenCoverage(new Set(list.map(function (it) { return String(it && it.name || ""); })));
+    /** Full-catalog token checks are dev diagnostics; defer so sync render profile reflects table work only. */
+    (function scheduleRecipeTokenCoverageValidate() {
+      var refList = list;
+      function run() {
+        recipeSortEngine.validateRecipeSortTokenCoverage(
+          new Set(refList.map(function (it) { return String(it && it.name || ""); }))
+        );
+      }
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 4000 });
+      } else {
+        setTimeout(run, 0);
+      }
+    })();
     const t4 = profile ? performance.now() : 0;
 
     schedulePersistUI();
@@ -3930,6 +4107,9 @@
           filter_ms: Number(filterMs.toFixed(3)),
           sort_ms: Number(sortMs.toFixed(3)),
           thead_ms: Number(theadMs.toFixed(3)),
+          stat_decimals_ms: Number((t2d - t2).toFixed(3)),
+          col_width_ms: Number((t2w - t2d).toFixed(3)),
+          colgroup_thead_ms: Number((t3 - t2w).toFixed(3)),
           tbody_dom_ms: Number(tbodyDomMs.toFixed(3)),
           persist_ms: Number(persistMs.toFixed(3)),
           sum_ms: Number(sumMs.toFixed(3)),
@@ -4017,15 +4197,30 @@
   document.getElementById("filter-object-type").addEventListener("change", render);
   initObjectTypeDropdown();
   initSecondarySortDropdown();
+  let sortPrecalcWisdomRestartTimer = null;
+
+  function scheduleSortCacheBuildAfterWisdomChange() {
+    if (sortPrecalcWisdomRestartTimer != null) {
+      clearTimeout(sortPrecalcWisdomRestartTimer);
+    }
+    sortPrecalcWisdomRestartTimer = setTimeout(function () {
+      sortPrecalcWisdomRestartTimer = null;
+      if (!data.ItemList.length) return;
+      scheduleBackgroundSortPermCacheBuild();
+    }, 400);
+  }
+
   const wisdomEl = document.getElementById("wisdom-stat");
   if (wisdomEl) {
     wisdomEl.addEventListener("input", function () {
       syncWisdomFromInput();
       scheduleRenderFromWisdom();
+      scheduleSortCacheBuildAfterWisdomChange();
     });
     wisdomEl.addEventListener("change", function () {
       syncWisdomFromInput();
       scheduleRenderFromWisdom();
+      scheduleSortCacheBuildAfterWisdomChange();
     });
   }
 
@@ -4189,6 +4384,7 @@
     secondarySortEl.addEventListener("change", function () {
       secondarySortMode = normalizeSecondarySortMode(secondarySortEl.value);
       render();
+      scheduleBackgroundSortPermCacheBuild();
     });
   }
 
@@ -4224,6 +4420,11 @@
         itemByName.set(it.name, it);
       }
     }
+    sortCacheBuildEpoch++;
+    cancelBackgroundSortPermCacheBuild();
+    sortPermCache.clear();
+    sortBind.invalidatePriceMatricesCache();
+    rebuildItemIndexByName();
     recipeTooltipEl = document.getElementById("recipe-tooltip");
     ensureRecipeTooltipGlobalWatchers();
 
@@ -4276,6 +4477,7 @@
     }
 
     render();
+    scheduleBackgroundSortPermCacheBuild();
     scheduleBackgroundIconWarmup();
   }
 

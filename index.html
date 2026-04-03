@@ -167,6 +167,28 @@
 
   <div id="recipe-tooltip" class="recipe-tooltip" hidden role="tooltip"></div>
 
+  <div
+    id="sort-precalc-debug"
+    class="sort-precalc-debug"
+    hidden
+    aria-live="polite"
+  >
+    <div class="sort-precalc-debug__title">Sort precompute (debug)</div>
+    <div class="sort-precalc-debug__stats">
+      <span id="sort-precalc-count">0</span> / <span id="sort-precalc-total">0</span>
+    </div>
+    <div
+      id="sort-precalc-bar"
+      class="sort-precalc-debug__bar"
+      role="progressbar"
+      aria-valuenow="0"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <div id="sort-precalc-bar-fill" class="sort-precalc-debug__fill"></div>
+    </div>
+  </div>
+
   <dialog id="json-dialog" class="json-dialog" aria-labelledby="json-dialog-title">
     <div class="json-dialog-head">
       <span id="json-dialog-title">Raw item data</span>
@@ -177,6 +199,7 @@
 
   <script src="colors.js"></script>
   <script src="recipe-sort.js"></script>
+  <script src="sort-permutation-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
