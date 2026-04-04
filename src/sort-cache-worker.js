@@ -145,66 +145,6 @@ function handleRunPermutations(epoch, msg) {
   }
 }
 
-function handleRunFull(epoch, msg) {
-  const jobs = Array.isArray(msg.jobs) ? msg.jobs : [];
-  try {
-    initWorkerPayload(msg.payload);
-    const L = getSortBind();
-    L.invalidatePriceMatricesCache();
-    L.precomputePriceMatrices();
-    const bufs = L.cloneMatrixBuffersForTransfer();
-    const n =
-      msg.payload && msg.payload.ItemList ? msg.payload.ItemList.length : 0;
-    self.postMessage(
-      {
-        type: "matrices",
-        epoch: epoch,
-        n: n,
-        buy: bufs.buy,
-        sell: bufs.sell,
-        comp: bufs.comp,
-        profit: bufs.profit,
-      },
-      [bufs.buy, bufs.sell, bufs.comp, bufs.profit],
-    );
-
-    for (let ji = 0; ji < jobs.length; ji++) {
-      const job = jobs[ji];
-      const key = L.sortCacheKey(
-        job.col,
-        job.dirStr,
-        job.secondary,
-        job.wisdomSlice,
-      );
-      const perm = L.buildSortPermutation({
-        col: job.col,
-        dir: job.dir,
-        secondary: job.secondary,
-        wisdom: job.wisdomSlice,
-      });
-      self.postMessage(
-        {
-          type: "job",
-          epoch: epoch,
-          key: key,
-          done: ji + 1,
-          total: jobs.length,
-          perm: perm.buffer,
-        },
-        [perm.buffer],
-      );
-    }
-
-    self.postMessage({
-      type: "done",
-      epoch: epoch,
-      totalJobs: jobs.length,
-    });
-  } catch (err) {
-    postError(epoch, err);
-  }
-}
-
 self.onmessage = function (e) {
   const msg = e.data;
   if (!msg) return;
@@ -215,10 +155,6 @@ self.onmessage = function (e) {
   }
   if (msg.type === "runPermutations") {
     handleRunPermutations(epoch, msg);
-    return;
-  }
-  if (msg.type === "run") {
-    handleRunFull(epoch, msg);
     return;
   }
 };

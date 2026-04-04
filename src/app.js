@@ -48,7 +48,8 @@ function createSortCacheWorker() {
   let sortPermCacheIdleId = null;
 
   /** Parallel workers computing sort permutations (after matrices exist). */
-  const SORT_CACHE_PERM_WORKER_CAP = 8;
+  /** Upper bound on parallel sort-cache workers (hardwareConcurrency is used below). */
+  const SORT_CACHE_PERM_WORKER_MAX = 32;
 
   /** @type {Worker[]} */
   let sortCacheWorkers = [];
@@ -3402,7 +3403,8 @@ function createSortCacheWorker() {
   }
 
   /**
-   * How many workers to use for permutation jobs (matrices are built once separately when this is 2+).
+   * How many permutation workers to run after price matrices are built (one matrix pass, then this many).
+   * Uses logical cores when available, capped for sanity.
    * @param {number} jobCount
    */
   function getSortCachePermWorkerCount(jobCount) {
@@ -3411,7 +3413,7 @@ function createSortCacheWorker() {
     if (typeof navigator !== "undefined" && navigator.hardwareConcurrency) {
       hc = navigator.hardwareConcurrency;
     }
-    return Math.max(1, Math.min(SORT_CACHE_PERM_WORKER_CAP, hc, jobCount));
+    return Math.max(1, Math.min(SORT_CACHE_PERM_WORKER_MAX, hc, jobCount));
   }
 
   /**
@@ -3670,20 +3672,13 @@ function createSortCacheWorker() {
           };
         }
 
+        /**
+         * One pipeline for all cases: (1) matrix worker builds price matrices once and posts buffers;
+         * (2) N permutation workers each get the same catalog payload (structured clone per worker —
+         * workers cannot share JS graphs) plus matrix buffer copies and a job chunk.
+         */
         const permCount = getSortCachePermWorkerCount(pendingJobs.length);
-        if (permCount <= 1) {
-          const w = createSortCacheWorker();
-          sortCacheWorkers = [w];
-          permWorkersRemaining = 1;
-          attachPermWorkerHandlers(w);
-          w.postMessage({
-            type: "run",
-            epoch: epoch,
-            payload: sortWorkerPayload,
-            jobs: pendingJobs,
-          });
-          return;
-        }
+        const chunks = splitJobsIntoChunks(pendingJobs, permCount);
 
         sortCacheMatrixWorker = createSortCacheWorker();
         sortCacheMatrixWorker.onmessage = function (ev) {
@@ -3693,8 +3688,7 @@ function createSortCacheWorker() {
             applySortMatricesFromWorker(m.n, m.buy, m.sell, m.comp, m.profit);
             terminateSortCacheMatrixWorker();
             if (epoch !== sortCacheBuildEpoch) return;
-            const k = getSortCachePermWorkerCount(pendingJobs.length);
-            const chunks = splitJobsIntoChunks(pendingJobs, k);
+            const k = permCount;
             permWorkersRemaining = k;
             sortCacheWorkers = [];
             for (let i = 0; i < k; i++) {
