@@ -713,13 +713,13 @@ export function createRecipeSortEngine() {
         });
       }
     }
-    // if (failures.length) {
-    //   console.groupCollapsed("[recipe-sort] token coverage mismatches:", failures.length);
-    //   for (let i = 0; i < failures.length; i++) console.warn("[recipe-sort] mismatch", failures[i]);
-    //   console.groupEnd();
-    // } else {
-    //   console.info("[recipe-sort] token coverage: all visible items matched.");
-    // }
+    if (failures.length) {
+      console.groupCollapsed("[recipe-sort] token coverage mismatches:", failures.length);
+      for (let i = 0; i < failures.length; i++) console.warn("[recipe-sort] mismatch", failures[i]);
+      console.groupEnd();
+    } else {
+      console.info("[recipe-sort] token coverage: all visible items matched.");
+    }
   }
 
   return {
