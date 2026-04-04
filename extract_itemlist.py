@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Extract ItemList from Data/objects/crafting/craftingitems.lua into `public/itemlist.json`
-(and `public/itemlist.json.gz`), including a packed PNG atlas at `public/icons-atlas.png`
+Extract ItemList from Data/objects/crafting/craftingitems.lua into `public/catalog.json`
+(and `public/catalog.json.gz`), including a packed PNG atlas at `public/icons-atlas.png`
 of unique inventory DDS icons.
+
+The JSON payload has two top-level keys: `itemlist` (items, recipes, icon map, atlas) and
+`sharedblockinfo` (block stats from sharedblockinfo.lua — hitPoints, mass, buoyancy,
+impactDamageMult per block type).
 
 Requires Python 3.10+, Pillow, and imageio (`pip install -r requirements.txt`). The script exits
 immediately with an error if anything is missing.
-
-Also extracts block stats from Data/objects/sharedblockinfo.lua into `public/sharedblockinfo.json`
-— hitPoints, mass, buoyancy, impactDamageMult per block type.
 
 Parses Data/objects/crafting/recipes.lua into recipesByProduct (ingredients to craft an item)
 and recipesByIngredient (recipe sets that use an item as an ingredient, one row per set).
@@ -705,8 +706,7 @@ def main() -> int:
     crafting = game_root / "Data" / "objects" / "crafting" / "craftingitems.lua"
     recipes_lua = game_root / "Data" / "objects" / "crafting" / "recipes.lua"
     shared_blocks = game_root / "Data" / "objects" / "sharedblockinfo.lua"
-    out_path = public_dir / "itemlist.json"
-    blocks_out_path = public_dir / "sharedblockinfo.json"
+    catalog_path = public_dir / "catalog.json"
 
     if not crafting.is_file():
         print(f"error: crafting file not found: {crafting}", file=sys.stderr)
@@ -801,16 +801,6 @@ def main() -> int:
     if icon_atlas_payload is not None:
         payload["iconAtlas"] = icon_atlas_payload
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    # Minify to reduce size; optionally also emit a gzipped variant for faster transfer.
-    out_json_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    out_path.write_text(out_json_text, encoding="utf-8")
-
-    # Write `itemlist.json.gz` alongside `itemlist.json` so the browser can load fewer bytes.
-    gz_path = out_path.with_name(out_path.name + ".gz")
-    gz_path.write_bytes(gzip.compress(out_json_text.encode("utf-8"), compresslevel=9))
-    print(f"Wrote {out_path} and {gz_path} (gzip).")
-
     try:
         blocks_source_rel = (
             str(shared_blocks.relative_to(game_root)) if shared_blocks.is_file() else None
@@ -823,11 +813,21 @@ def main() -> int:
         "blockTypeCount": len(block_types),
         "blockTypes": block_types,
     }
-    blocks_json_text = json.dumps(
-        blocks_payload, ensure_ascii=False, separators=(",", ":")
+
+    catalog_bundle = {
+        "itemlist": payload,
+        "sharedblockinfo": blocks_payload,
+    }
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog_json_text = json.dumps(
+        catalog_bundle, ensure_ascii=False, separators=(",", ":")
     )
-    blocks_out_path.write_text(blocks_json_text, encoding="utf-8")
-    print(f"Wrote {blocks_out_path}.")
+    catalog_path.write_text(catalog_json_text, encoding="utf-8")
+    gz_path = catalog_path.with_name(catalog_path.name + ".gz")
+    gz_path.write_bytes(
+        gzip.compress(catalog_json_text.encode("utf-8"), compresslevel=9)
+    )
+    print(f"Wrote {catalog_path} and {gz_path} (gzip).")
     return 0
 
 

@@ -384,7 +384,7 @@ const PLACE_ARTILLERY_SHIP_ITEM_TYPE = "PlaceArtilleryShipItem";
 
 /**
  * objectTypes that show shared mass / buoyancy / hit points columns (`pl*`).
- * Most read `placeableSetupInfo`; PlaceBlockItem reads `sharedblockinfo.json` via `blockType`.
+ * Most read `placeableSetupInfo`; PlaceBlockItem reads catalog `sharedblockinfo` via `blockType`.
  */
 const PLACEABLE_SETUP_STAT_OBJECT_TYPES = [
   PLACE_BLOCK_ITEM_OBJECT_TYPE,

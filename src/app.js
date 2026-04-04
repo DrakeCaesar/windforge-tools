@@ -1,5 +1,5 @@
 /**
- * Windforge item catalog — loads `public/itemlist.json(.gz)` from extract_itemlist.py
+ * Windforge item catalog — loads `public/catalog.json(.gz)` from extract_itemlist.py
  */
 
 import { createRecipeSortEngine } from "./recipe-sort.js";
@@ -88,7 +88,7 @@ function createSortCacheWorker() {
   /** @type {ReturnType<typeof setTimeout>|null} */
   let iconCachePersistTimer = null;
 
-  /** From sharedblockinfo.json: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
+  /** From catalog `sharedblockinfo`: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
 
   /** @type {string} */
@@ -5481,7 +5481,7 @@ function createSortCacheWorker() {
   async function load() {
     async function fetchJsonGz(url) {
       if (typeof DecompressionStream !== "function") {
-        throw new Error("DecompressionStream unsupported (need itemlist.json.gz).");
+        throw new Error("DecompressionStream unsupported (need catalog.json.gz).");
       }
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error(url + ": " + res.status);
@@ -5523,10 +5523,19 @@ function createSortCacheWorker() {
       }
     }
 
-    const [itemsPayload, blocksPayload] = await Promise.all([
-      fetchCatalogFile("itemlist"),
-      fetchJsonPlain(publicAssetUrl("sharedblockinfo.json")),
-    ]);
+    const catalog = await fetchCatalogFile("catalog");
+    if (
+      !catalog ||
+      typeof catalog !== "object" ||
+      !catalog.itemlist ||
+      typeof catalog.itemlist !== "object" ||
+      !catalog.sharedblockinfo ||
+      typeof catalog.sharedblockinfo !== "object"
+    ) {
+      throw new Error("catalog.json: expected { itemlist, sharedblockinfo }");
+    }
+    const itemsPayload = catalog.itemlist;
+    const blocksPayload = catalog.sharedblockinfo;
 
     data = itemsPayload;
     // Strict: required keys must exist in the payload.

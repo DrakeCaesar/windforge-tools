@@ -26,7 +26,7 @@ Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs **`pnpm ins
 
 ### Catalog data (`public/`)
 
-All shipped catalog assets live under **`public/`**: JSON + gzip for items and block info, and a single **`icons-atlas.png`** (or flat per-hash PNGs if atlas packing is skipped). Vite copies this tree to `dist/` unchanged.
+All shipped catalog assets live under **`public/`**: **`catalog.json`** (+ **`catalog.json.gz`**) bundling item list + recipes + block stats, and a single **`icons-atlas.png`** (or flat per-hash PNGs if atlas packing is skipped). Vite copies this tree to `dist/` unchanged.
 
 Regenerate everything with:
 
