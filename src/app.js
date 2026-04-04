@@ -505,7 +505,7 @@ function createSortCacheWorker() {
   const COL_PX_STAT = 72;
 
   const COLUMN_WIDTH_PX = {
-    icon: 72,
+    icon: 58,
     display: 288,
     name: 288,
     objectType: 192,

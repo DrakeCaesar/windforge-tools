@@ -1027,7 +1027,7 @@ main {
 }
 
 .wiki-table td.col-icon {
-  /* Width comes from <colgroup>; keep only a floor so the 48px icon + borders fit. Do not fix to ~58px or the header label stays cramped. */
+  /* Width comes from <colgroup>; floor matches --v-row-height (59px) for a square icon cell. */
   min-width: 58px;
   text-align: center;
   vertical-align: middle;
