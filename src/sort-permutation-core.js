@@ -279,6 +279,56 @@ const JACKHAMMER_OBJECT_TYPE = "JackHammer";
 const RANGED_WEAPON_OBJECT_TYPE = "RangedWeapon";
 const THROWABLE_WEAPON_OBJECT_TYPE = "ThrowableWeapon";
 const CLOTHING_ITEM_OBJECT_TYPE = "ClothingItem";
+/**
+ * Recipe internal-name sort: order clothing only by `inventorySetupInfo.inventoryIconFile` basename.
+ * Fixed sequence (see itemlist ClothingItem icons); unknown files sort after these, then by name.
+ */
+const CLOTHING_INVENTORY_ICON_ORDER = [
+  "Helmet.dds",
+  "Helmet_2.dds",
+  "Helmet_3.dds",
+  "Torso_Paratrooper.dds",
+  "Torso_Plate.dds",
+  "Gloves_1.dds",
+  "Gloves_2.dds",
+  "Pants.dds",
+  "Boots.dds",
+  "Boots_armor.dds",
+  "UnknownIcon.dds",
+];
+
+const CLOTHING_INVENTORY_ICON_ORDER_INDEX = new Map(
+  CLOTHING_INVENTORY_ICON_ORDER.map(function (name, i) {
+    return [name.toLowerCase(), i];
+  }),
+);
+
+function clothingInventoryIconBase(item) {
+  const inv = item && item.inventorySetupInfo;
+  const raw = inv && inv.inventoryIconFile;
+  if (raw == null || typeof raw !== "string") return "";
+  const p = String(raw).replace(/\\/g, "/").trim();
+  const parts = p.split("/");
+  return parts.length ? parts[parts.length - 1] : "";
+}
+
+function clothingInventoryIconRankFromBase(base) {
+  const n = String(base || "").toLowerCase();
+  if (CLOTHING_INVENTORY_ICON_ORDER_INDEX.has(n)) {
+    return CLOTHING_INVENTORY_ICON_ORDER_INDEX.get(n);
+  }
+  return CLOTHING_INVENTORY_ICON_ORDER.length;
+}
+
+function compareClothingIconSlot(a, b) {
+  const ia = clothingInventoryIconBase(a);
+  const ib = clothingInventoryIconBase(b);
+  const ra = clothingInventoryIconRankFromBase(ia);
+  const rb = clothingInventoryIconRankFromBase(ib);
+  if (ra !== rb) return ra - rb;
+  return ia.localeCompare(ib, undefined, { sensitivity: "base", numeric: true });
+}
+
 const PLACE_BLOCK_ITEM_OBJECT_TYPE = "PlaceBlockItem";
 const GRAPPLING_HOOK_OBJECT_TYPE = "GrapplingHook";
 const PLACE_PROPULSION_OBJECT_ITEM_TYPE = "PlacePropulsionObjectItem";
@@ -694,6 +744,8 @@ function createSortPermutationBindings(deps) {
     } else {
       let c;
       if (secondary === SECONDARY_SORT_RECIPE_BASE && col === "name") {
+        // Precedence: (1) object-type bucket in "all" filter view, (2) clothing inventory icon,
+        // (3) recipe-based internal-name order. Icons always before recipe compare.
         const mode =
           state.objectTypeFilterMode != null
             ? String(state.objectTypeFilterMode)
@@ -702,6 +754,15 @@ function createSortPermutationBindings(deps) {
           const ra = objectTypeRank(a);
           const rb = objectTypeRank(b);
           if (ra !== rb) return ra - rb;
+        }
+        if (
+          a &&
+          b &&
+          a.objectType === CLOTHING_ITEM_OBJECT_TYPE &&
+          b.objectType === CLOTHING_ITEM_OBJECT_TYPE
+        ) {
+          const slotCmp = compareClothingIconSlot(a, b);
+          if (slotCmp !== 0) return slotCmp;
         }
         c = rse().compareByRecipeBaseThenName(a.name || "", b.name || "");
       } else {
