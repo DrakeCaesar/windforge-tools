@@ -326,21 +326,11 @@ function inventoryIconBase(item) {
   return parts.length ? parts[parts.length - 1] : "";
 }
 
-/** Same DDS + different mask colours (e.g. all `Knife.dds` melee weapons). */
-function inventoryIconTintKey(item) {
-  const inv = item && item.inventorySetupInfo;
-  if (!inv) return "";
-  const p =
-    inv.iconPrimaryColor != null ? String(inv.iconPrimaryColor).trim() : "";
-  const s =
-    inv.iconSecondaryColor != null ? String(inv.iconSecondaryColor).trim() : "";
-  return p + "\0" + s;
-}
-
 /**
- * Per-object-type icon basename order ({@link INVENTORY_ICON_ORDER_BY_OBJECT_TYPE}), then tint; then recipe compare.
+ * Per-object-type icon basename order ({@link INVENTORY_ICON_ORDER_BY_OBJECT_TYPE}).
+ * Same DDS basename + different mask colours tie (no tint sort); recipe order breaks ties.
  */
-function compareInventoryIconOrderThenTint(a, b) {
+function compareInventoryIconOrderIgnoringTint(a, b) {
   const ota = String(a.objectType || "");
   const otb = String(b.objectType || "");
   if (ota !== otb) {
@@ -354,12 +344,7 @@ function compareInventoryIconOrderThenTint(a, b) {
   const ib = inventoryIconBase(b);
   if (!list || !Array.isArray(list) || list.length === 0) {
     warnNoIconOrderListForObjectType(ota);
-    let c = ia.localeCompare(ib, undefined, {
-      sensitivity: "base",
-      numeric: true,
-    });
-    if (c !== 0) return c;
-    return inventoryIconTintKey(a).localeCompare(inventoryIconTintKey(b), undefined, {
+    return ia.localeCompare(ib, undefined, {
       sensitivity: "base",
       numeric: true,
     });
@@ -380,15 +365,12 @@ function compareInventoryIconOrderThenTint(a, b) {
     });
     if (c !== 0) return c;
   }
-  return inventoryIconTintKey(a).localeCompare(inventoryIconTintKey(b), undefined, {
-    sensitivity: "base",
-    numeric: true,
-  });
+  return 0;
 }
 
-/** For recipe internal-name sort: icon order + tint, then recipe. */
+/** For recipe internal-name sort: icon order without tint, then recipe. */
 function compareInventoryIconForRecipeNameSort(a, b) {
-  return compareInventoryIconOrderThenTint(a, b);
+  return compareInventoryIconOrderIgnoringTint(a, b);
 }
 
 const PLACE_BLOCK_ITEM_OBJECT_TYPE = "PlaceBlockItem";
@@ -806,8 +788,8 @@ function createSortPermutationBindings(deps) {
     } else {
       let c;
       if (secondary === SECONDARY_SORT_RECIPE_BASE && col === "name") {
-        // Precedence: (1) object-type bucket in "all" filter view, (2) per-type icon order + tint,
-        // (3) recipe order.
+        // Precedence: (1) object-type bucket in "all" filter view, (2) icon basename order
+        // (no tint — same DDS ties here), (3) recipe order.
         const mode =
           state.objectTypeFilterMode != null
             ? String(state.objectTypeFilterMode)
