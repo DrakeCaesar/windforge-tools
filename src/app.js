@@ -1869,10 +1869,12 @@ function createSortCacheWorker() {
         hr.className = "recipe-tooltip__hr";
         containerEl.appendChild(hr);
       }
-      const usedTitle = document.createElement("div");
-      usedTitle.className = "recipe-tooltip__title";
-      usedTitle.textContent = displayName(item) || item.name || "";
-      containerEl.appendChild(usedTitle);
+      if (!hasCraft) {
+        const usedTitle = document.createElement("div");
+        usedTitle.className = "recipe-tooltip__title";
+        usedTitle.textContent = displayName(item) || item.name || "";
+        containerEl.appendChild(usedTitle);
+      }
 
       const subHead = document.createElement("div");
       subHead.className = "recipe-tooltip__head";
