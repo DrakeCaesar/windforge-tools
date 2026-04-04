@@ -85,8 +85,8 @@ export const INVENTORY_ICON_ORDER_BY_OBJECT_TYPE = {
     "Jackhammer.dds",
   ],
   "MeleeWeapon": [
-    "Knife.dds",
     "PunchGrey.dds",
+    "Knife.dds",
   ],
   "PlaceArtilleryShipItem": [
     "ArtilleryTurret.dds",
