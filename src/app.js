@@ -65,6 +65,9 @@ function createSortCacheWorker() {
   /** Total permutation keys for the loaded catalog (for debug progress). */
   let sortCacheJobTotalCount = 0;
 
+  /** `performance.now()` when the current background permutation build started; `null` if none. */
+  let sortPermCacheGenerationStartMs = null;
+
   const SORT_PERM_IDB_NAME = "windforge-item-catalog";
   const SORT_PERM_IDB_VER = 1;
   const SORT_PERM_STORE = "sortPermCache";
@@ -3563,6 +3566,7 @@ function createSortCacheWorker() {
     cancelSortPermPersistTimer();
     terminateSortCacheMatrixWorker();
     terminateSortCacheWorkers();
+    sortPermCacheGenerationStartMs = null;
     if (sortPermCacheIdleId == null) return;
     if (typeof cancelIdleCallback === "function") {
       cancelIdleCallback(sortPermCacheIdleId);
@@ -3845,6 +3849,7 @@ function createSortCacheWorker() {
       updateSortPrecalcDebugPanel();
       if (ji >= jobs.length) {
         flushSortPermCachePersist();
+        logSortPermCacheGenerationComplete(epoch, jobs.length);
       }
     }
 
@@ -3880,6 +3885,7 @@ function createSortCacheWorker() {
       } else {
         updateSortPrecalcDebugPanel();
         flushSortPermCachePersist();
+        logSortPermCacheGenerationComplete(epoch, jobs.length);
       }
     }
 
@@ -3888,6 +3894,25 @@ function createSortCacheWorker() {
       return;
     }
     scheduleNext();
+  }
+
+  /**
+   * Logs wall-clock time for the full background run that computes missing sort permutations.
+   * @param {number} epoch
+   * @param {number} jobCount
+   */
+  function logSortPermCacheGenerationComplete(epoch, jobCount) {
+    if (epoch !== sortCacheBuildEpoch) return;
+    if (sortPermCacheGenerationStartMs == null) return;
+    const ms = performance.now() - sortPermCacheGenerationStartMs;
+    sortPermCacheGenerationStartMs = null;
+    console.log(
+      "[Windforge item catalog] Sort permutation cache generation complete: " +
+        jobCount +
+        " permutation(s) in " +
+        ms.toFixed(1) +
+        " ms"
+    );
   }
 
   /**
@@ -3921,6 +3946,8 @@ function createSortCacheWorker() {
       if (debugRoot) debugRoot.hidden = true;
       return;
     }
+
+    sortPermCacheGenerationStartMs = performance.now();
 
     if (debugRoot) debugRoot.hidden = false;
 
@@ -3977,6 +4004,7 @@ function createSortCacheWorker() {
                 updateSortPrecalcDebugPanel();
                 hideSortPrecalcWhenComplete();
                 flushSortPermCachePersist();
+                logSortPermCacheGenerationComplete(epoch, pendingJobs.length);
               }
               return;
             }
