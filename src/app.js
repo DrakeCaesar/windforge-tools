@@ -2675,13 +2675,11 @@ function createSortCacheWorker() {
   function matchesQuery(item, q) {
     if (!q) return true;
     const s = q.toLowerCase();
-    const iconColors = getIconColorNames(item);
     const hay = [
       item.name,
       item.objectType,
       displayName(item),
       description(item),
-      iconColors ? iconColors.primary + " " + iconColors.secondary : "",
     ]
       .filter(Boolean)
       .join(" ")
