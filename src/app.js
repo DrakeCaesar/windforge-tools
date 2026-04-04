@@ -6,6 +6,7 @@ import { createRecipeSortEngine } from "./recipe-sort.js";
 import recipeSortSource from "./recipe-sort.js?raw";
 import { itemCatalogSortPermutation as SP } from "./sort-permutation-core.js";
 import sortPermutationCoreSource from "./sort-permutation-core.js?raw";
+import inventoryIconOrderSource from "./inventory-icon-order.js?raw";
 import { WindforgeColors } from "./colors.js";
 
 function createSortCacheWorker() {
@@ -3601,6 +3602,8 @@ function createSortCacheWorker() {
     let h = 2166136261 >>> 0;
     h = fnv1a32Update(h, "sortperm-core:\0");
     h = fnv1a32Update(h, sortPermutationCoreSource);
+    h = fnv1a32Update(h, "invIconOrder:\0");
+    h = fnv1a32Update(h, inventoryIconOrderSource);
     h = fnv1a32Update(h, "recipeSort:\0");
     h = fnv1a32Update(h, recipeSortSource);
     h = fnv1a32Update(h, "objTypeGroups:\0");

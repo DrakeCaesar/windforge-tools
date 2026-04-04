@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:icon-order": "node scripts/generate-inventory-icon-order.mjs"
   },
   "devDependencies": {
     "vite": "^6.2.0"
