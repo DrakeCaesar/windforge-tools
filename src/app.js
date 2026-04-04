@@ -1790,11 +1790,6 @@ function createSortCacheWorker() {
     containerEl.scrollTop = 0;
 
     if (hasCraft) {
-      const head = document.createElement("div");
-      head.className = "recipe-tooltip__head";
-      head.textContent = "Craft: " + (displayName(item) || item.name || "");
-      containerEl.appendChild(head);
-
       for (let i = 0; i < recipes.length; i++) {
         const rec = recipes[i];
         if (i > 0) {
@@ -1816,6 +1811,13 @@ function createSortCacheWorker() {
           title.appendChild(out);
         }
         containerEl.appendChild(title);
+
+        if (i === 0) {
+          const head = document.createElement("div");
+          head.className = "recipe-tooltip__head";
+          head.textContent = "Craft: " + (displayName(item) || item.name || "");
+          containerEl.appendChild(head);
+        }
 
         const ul = document.createElement("ul");
         ul.className = "recipe-tooltip__list";
@@ -1867,15 +1869,15 @@ function createSortCacheWorker() {
         hr.className = "recipe-tooltip__hr";
         containerEl.appendChild(hr);
       }
-      const subHead = document.createElement("div");
-      subHead.className = "recipe-tooltip__head";
-      subHead.textContent = "Used in:";
-      containerEl.appendChild(subHead);
-
       const usedTitle = document.createElement("div");
       usedTitle.className = "recipe-tooltip__title";
       usedTitle.textContent = displayName(item) || item.name || "";
       containerEl.appendChild(usedTitle);
+
+      const subHead = document.createElement("div");
+      subHead.className = "recipe-tooltip__head";
+      subHead.textContent = "Used in:";
+      containerEl.appendChild(subHead);
 
       const ulUsed = document.createElement("ul");
       ulUsed.className = "recipe-tooltip__list recipe-tooltip__list--used-in";
