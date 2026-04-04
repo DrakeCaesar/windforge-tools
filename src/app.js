@@ -50,6 +50,8 @@ function createSortCacheWorker() {
   /** Parallel workers computing sort permutations (after matrices exist). */
   /** Upper bound on parallel sort-cache workers (hardwareConcurrency is used below). */
   const SORT_CACHE_PERM_WORKER_MAX = 32;
+  /** Target permutation jobs per worker (fewer workers ⇒ less payload clone / startup overhead). */
+  const SORT_CACHE_JOBS_PER_PERM_WORKER = 10;
 
   /** @type {Worker[]} */
   let sortCacheWorkers = [];
@@ -3404,7 +3406,8 @@ function createSortCacheWorker() {
 
   /**
    * How many permutation workers to run after price matrices are built (one matrix pass, then this many).
-   * Uses logical cores when available, capped for sanity.
+   * Targets ~SORT_CACHE_JOBS_PER_PERM_WORKER jobs per worker to limit clone/startup overhead,
+   * capped by logical cores and SORT_CACHE_PERM_WORKER_MAX.
    * @param {number} jobCount
    */
   function getSortCachePermWorkerCount(jobCount) {
@@ -3413,7 +3416,9 @@ function createSortCacheWorker() {
     if (typeof navigator !== "undefined" && navigator.hardwareConcurrency) {
       hc = navigator.hardwareConcurrency;
     }
-    return Math.max(1, Math.min(SORT_CACHE_PERM_WORKER_MAX, hc, jobCount));
+    const maxK = Math.min(SORT_CACHE_PERM_WORKER_MAX, hc);
+    const kFromBatch = Math.ceil(jobCount / SORT_CACHE_JOBS_PER_PERM_WORKER);
+    return Math.max(1, Math.min(maxK, kFromBatch));
   }
 
   /**
@@ -3688,10 +3693,18 @@ function createSortCacheWorker() {
             applySortMatricesFromWorker(m.n, m.buy, m.sell, m.comp, m.profit);
             terminateSortCacheMatrixWorker();
             if (epoch !== sortCacheBuildEpoch) return;
+            /**
+             * Spawning all permutation workers in one synchronous block blocks the main thread:
+             * each postMessage structurally clones the full catalog, and each worker needs four
+             * matrix buffer slices. Spread work across frames so the UI can paint.
+             */
             const k = permCount;
             permWorkersRemaining = k;
             sortCacheWorkers = [];
-            for (let i = 0; i < k; i++) {
+            let permSpawnIndex = 0;
+            function spawnNextPermutationWorker() {
+              if (epoch !== sortCacheBuildEpoch) return;
+              if (permSpawnIndex >= k) return;
               const pw = createSortCacheWorker();
               sortCacheWorkers.push(pw);
               attachPermWorkerHandlers(pw);
@@ -3704,7 +3717,7 @@ function createSortCacheWorker() {
                   type: "runPermutations",
                   epoch: epoch,
                   payload: sortWorkerPayload,
-                  jobs: chunks[i],
+                  jobs: chunks[permSpawnIndex],
                   n: m.n,
                   buy: buyBuf,
                   sell: sellBuf,
@@ -3713,7 +3726,12 @@ function createSortCacheWorker() {
                 },
                 [buyBuf, sellBuf, compBuf, profitBuf]
               );
+              permSpawnIndex++;
+              if (permSpawnIndex < k) {
+                requestAnimationFrame(spawnNextPermutationWorker);
+              }
             }
+            requestAnimationFrame(spawnNextPermutationWorker);
             return;
           }
           if (m.type === "error") {
@@ -3727,10 +3745,14 @@ function createSortCacheWorker() {
             "[Windforge item catalog] sort-cache matrix worker load error"
           );
         };
-        sortCacheMatrixWorker.postMessage({
-          type: "buildMatrices",
-          epoch: epoch,
-          payload: sortWorkerPayload,
+        requestAnimationFrame(function scheduleMatrixWorkerStart() {
+          if (epoch !== sortCacheBuildEpoch) return;
+          if (!sortCacheMatrixWorker) return;
+          sortCacheMatrixWorker.postMessage({
+            type: "buildMatrices",
+            epoch: epoch,
+            payload: sortWorkerPayload,
+          });
         });
         return;
       } catch (e) {
