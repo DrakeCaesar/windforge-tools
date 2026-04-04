@@ -747,7 +747,7 @@ function createSortCacheWorker() {
     }, 150);
   }
 
-  const SEARCH_DEBOUNCE_MS = 200;
+  const SEARCH_DEBOUNCE_MS = 10;
   let searchDebounceTimer = null;
   let wisdomRenderRaf = null;
 
