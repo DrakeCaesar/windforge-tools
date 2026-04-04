@@ -9,6 +9,8 @@ const workerState = {
   blockTypes: {},
   itemByName: new Map(),
   recipeSortEngine: null,
+  /** @type {Record<string, number>} */
+  objectTypeSortRank: {},
 };
 
 function initWorkerPayload(payload) {
@@ -36,6 +38,12 @@ function initWorkerPayload(payload) {
     recipesByIngredient: workerState.data.recipesByIngredient,
   });
   workerState.recipeSortEngine.clearCache();
+  workerState.objectTypeSortRank =
+    payload &&
+    payload.objectTypeSortRank &&
+    typeof payload.objectTypeSortRank === "object"
+      ? payload.objectTypeSortRank
+      : {};
 }
 
 let sortBind = null;
@@ -53,6 +61,19 @@ function getSortBind() {
       },
       getRecipeSortEngine: function () {
         return workerState.recipeSortEngine;
+      },
+      getObjectTypeSortRank: function (item) {
+        const t = item && item.objectType;
+        const key = t == null || String(t).trim() === "" ? "" : String(t);
+        const r = workerState.objectTypeSortRank;
+        if (Object.prototype.hasOwnProperty.call(r, key)) return r[key];
+        if (
+          key === "" &&
+          Object.prototype.hasOwnProperty.call(r, "__no_object_type__")
+        ) {
+          return r["__no_object_type__"];
+        }
+        return 999999;
       },
       getWisdomStat: function () {
         return 0;
@@ -115,12 +136,15 @@ function handleRunPermutations(epoch, msg) {
         job.dirStr,
         job.secondary,
         job.wisdomSlice,
+        job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all"
       );
       const perm = L.buildSortPermutation({
         col: job.col,
         dir: job.dir,
         secondary: job.secondary,
         wisdom: job.wisdomSlice,
+        objectTypeFilterMode:
+          job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all",
       });
       self.postMessage(
         {

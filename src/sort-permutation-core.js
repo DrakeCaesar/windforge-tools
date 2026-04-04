@@ -4,6 +4,7 @@ var PRECOMPUTED_WISDOM_SLICE_SET = new Set();
 for (var _wi = 0; _wi < WISDOM_LEVEL_COUNT; _wi++)
   PRECOMPUTED_WISDOM_SLICE_SET.add(_wi);
 var SECONDARY_SORT_INTERNAL_NAME = "name";
+/** Option value `recipeBase`: when sorting by internal name column, use recipe-sort custom order. */
 var SECONDARY_SORT_RECIPE_BASE = "recipeBase";
 
 const COLUMNS = [
@@ -322,6 +323,9 @@ function createSortPermutationBindings(deps) {
   }
   function rse() {
     return deps.getRecipeSortEngine();
+  }
+  function objectTypeRank(item) {
+    return deps.getObjectTypeSortRank(item);
   }
   function wisdomLive() {
     return deps.getWisdomStat();
@@ -689,17 +693,17 @@ function createSortPermutationBindings(deps) {
       if (na !== nb) return (na - nb) * dir;
     } else {
       let c;
-      if (secondary === SECONDARY_SORT_RECIPE_BASE) {
-        if (col === "name") {
-          c = rse().compareByRecipeBaseThenName(a.name || "", b.name || "");
-        } else {
-          const sa = String(va ?? "");
-          const sb = String(vb ?? "");
-          c = sa.localeCompare(sb, undefined, {
-            sensitivity: "base",
-            numeric: true,
-          });
+      if (secondary === SECONDARY_SORT_RECIPE_BASE && col === "name") {
+        const mode =
+          state.objectTypeFilterMode != null
+            ? String(state.objectTypeFilterMode)
+            : "all";
+        if (mode === "all") {
+          const ra = objectTypeRank(a);
+          const rb = objectTypeRank(b);
+          if (ra !== rb) return ra - rb;
         }
+        c = rse().compareByRecipeBaseThenName(a.name || "", b.name || "");
       } else {
         const sa = String(va ?? "");
         const sb = String(vb ?? "");
@@ -711,9 +715,6 @@ function createSortPermutationBindings(deps) {
       if (c !== 0) return c * dir;
     }
 
-    if (secondary === SECONDARY_SORT_RECIPE_BASE && col !== "name") {
-      return rse().compareByRecipeBaseThenName(a.name || "", b.name || "");
-    }
     return (a.name || "").localeCompare(b.name || "", undefined, {
       sensitivity: "base",
       numeric: true,
@@ -729,8 +730,20 @@ function createSortPermutationBindings(deps) {
     }
   }
 
-  function sortCacheKey(col, dirStr, secondary, wisdomSlice) {
-    return col + "\0" + dirStr + "\0" + secondary + "\0" + String(wisdomSlice);
+  function sortCacheKey(col, dirStr, secondary, wisdomSlice, objectTypeFilterMode) {
+    var mode =
+      objectTypeFilterMode != null ? String(objectTypeFilterMode) : "all";
+    return (
+      col +
+      "\0" +
+      dirStr +
+      "\0" +
+      secondary +
+      "\0" +
+      String(wisdomSlice) +
+      "\0" +
+      mode
+    );
   }
 
   function wisdomSlicesOrderedForJobs(currentWisdom) {
@@ -761,13 +774,34 @@ function createSortPermutationBindings(deps) {
           var wList = PRICE_SORT_COLUMN_IDS.has(col) ? wListPrice : [0];
           for (var wi = 0; wi < wList.length; wi++) {
             var w = wList[wi];
-            jobs.push({
-              col: col,
-              dirStr: dirStr,
-              dir: dir,
-              secondary: secondary,
-              wisdomSlice: PRICE_SORT_COLUMN_IDS.has(col) ? w : 0,
-            });
+            var ws = PRICE_SORT_COLUMN_IDS.has(col) ? w : 0;
+            if (col === "name" && secondary === SECONDARY_SORT_RECIPE_BASE) {
+              jobs.push({
+                col: col,
+                dirStr: dirStr,
+                dir: dir,
+                secondary: secondary,
+                wisdomSlice: ws,
+                objectTypeFilterMode: "all",
+              });
+              jobs.push({
+                col: col,
+                dirStr: dirStr,
+                dir: dir,
+                secondary: secondary,
+                wisdomSlice: ws,
+                objectTypeFilterMode: "narrow",
+              });
+            } else {
+              jobs.push({
+                col: col,
+                dirStr: dirStr,
+                dir: dir,
+                secondary: secondary,
+                wisdomSlice: ws,
+                objectTypeFilterMode: "all",
+              });
+            }
           }
         }
       }

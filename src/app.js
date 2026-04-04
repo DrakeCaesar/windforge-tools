@@ -3,7 +3,9 @@
  */
 
 import { createRecipeSortEngine } from "./recipe-sort.js";
+import recipeSortSource from "./recipe-sort.js?raw";
 import { itemCatalogSortPermutation as SP } from "./sort-permutation-core.js";
+import sortPermutationCoreSource from "./sort-permutation-core.js?raw";
 import { WindforgeColors } from "./colors.js";
 
 function createSortCacheWorker() {
@@ -62,10 +64,6 @@ function createSortCacheWorker() {
   /** Total permutation keys for the loaded catalog (for debug progress). */
   let sortCacheJobTotalCount = 0;
 
-  /**
-   * Bump when sort-column definitions or persist format change so disk cache is ignored.
-   */
-  const SORT_PERM_PERSIST_SCHEMA = 1;
   const SORT_PERM_IDB_NAME = "windforge-item-catalog";
   const SORT_PERM_IDB_VER = 1;
   const SORT_PERM_STORE = "sortPermCache";
@@ -114,6 +112,11 @@ function createSortCacheWorker() {
   let secondarySortMode = SECONDARY_SORT_INTERNAL_NAME;
   let wisdomStat = 0;
 
+  /**
+   * Object type string → rank (object-type filter dropdown order); used for recipe name sort in "all types" view.
+   */
+  let objectTypeSortRankByType = new Map();
+
   const sortBind = SP.createBindings({
     getData: function () {
       return data;
@@ -127,6 +130,15 @@ function createSortCacheWorker() {
     getRecipeSortEngine: function () {
       return recipeSortEngine;
     },
+    getObjectTypeSortRank: function (item) {
+      const t = item && item.objectType;
+      const key = t == null || String(t).trim() === "" ? "" : String(t);
+      if (objectTypeSortRankByType.has(key)) return objectTypeSortRankByType.get(key);
+      if (key === "" && objectTypeSortRankByType.has(NO_OBJECT_TYPE)) {
+        return objectTypeSortRankByType.get(NO_OBJECT_TYPE);
+      }
+      return 999999;
+    },
     getWisdomStat: function () {
       return wisdomStat;
     },
@@ -137,7 +149,7 @@ function createSortCacheWorker() {
   }
 
   function normalizeSecondarySortMode(v) {
-    // Migration: old "nameSuffixWords" mode now maps to recipe-base mode.
+    // Migration: old "nameSuffixWords" mode now maps to recipe-based internal name ordering.
     if (v === "nameSuffixWords" || v === SECONDARY_SORT_RECIPE_BASE) {
       return SECONDARY_SORT_RECIPE_BASE;
     }
@@ -2716,6 +2728,51 @@ function createSortCacheWorker() {
     },
   ];
 
+  /**
+   * Same ordering as the object-type filter dropdown (optgroups, then "Other" alphabetically).
+   */
+  function rebuildObjectTypeSortRanks() {
+    objectTypeSortRankByType = new Map();
+    let rank = 0;
+    const items = data.ItemList;
+    const seen = new Set();
+    let hasUntyped = false;
+    for (let i = 0; i < items.length; i++) {
+      const t = items[i].objectType;
+      if (t == null || String(t).trim() === "") {
+        hasUntyped = true;
+      } else {
+        seen.add(t);
+      }
+    }
+    if (hasUntyped) {
+      objectTypeSortRankByType.set("", rank);
+      objectTypeSortRankByType.set(NO_OBJECT_TYPE, rank);
+      rank++;
+    }
+    const grouped = new Set();
+    for (let g = 0; g < OBJECT_TYPE_FILTER_GROUPS.length; g++) {
+      const grp = OBJECT_TYPE_FILTER_GROUPS[g];
+      for (let k = 0; k < grp.ids.length; k++) {
+        const id = grp.ids[k];
+        if (seen.has(id) && !grouped.has(id)) {
+          objectTypeSortRankByType.set(id, rank++);
+          grouped.add(id);
+        }
+      }
+    }
+    const orphans = [];
+    seen.forEach(function (id) {
+      if (!grouped.has(id)) orphans.push(id);
+    });
+    orphans.sort(function (a, b) {
+      return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+    });
+    for (let j = 0; j < orphans.length; j++) {
+      objectTypeSortRankByType.set(orphans[j], rank++);
+    }
+  }
+
   function matchesObjectTypeFilter(item) {
     const sel = document.getElementById("filter-object-type");
     const v = sel ? sel.value : "";
@@ -2811,6 +2868,7 @@ function createSortCacheWorker() {
         ? restored.objectType
         : sel.value;
     sel.innerHTML = "";
+    rebuildObjectTypeSortRanks();
 
     const optAll = document.createElement("option");
     optAll.value = "";
@@ -3397,11 +3455,18 @@ function createSortCacheWorker() {
       dir: sortDir === "asc" ? 1 : -1,
       secondary: secondarySortMode,
       wisdom: wisdomStat,
+      objectTypeFilterMode: objectTypeFilterValue() === "" ? "all" : "narrow",
     });
   }
 
-  function sortCacheKey(col, dirStr, secondary, wisdomSlice) {
-    return sortBind.sortCacheKey(col, dirStr, secondary, wisdomSlice);
+  function sortCacheKey(col, dirStr, secondary, wisdomSlice, objectTypeFilterMode) {
+    return sortBind.sortCacheKey(
+      col,
+      dirStr,
+      secondary,
+      wisdomSlice,
+      objectTypeFilterMode != null ? objectTypeFilterMode : "all"
+    );
   }
 
   function ensurePriceMatricesForPrecomputedSlices() {
@@ -3528,11 +3593,18 @@ function createSortCacheWorker() {
   }
 
   /**
-   * Identifies the catalog for sort-cache persistence (item order, recipes, block stats).
+   * Identifies the catalog for sort-cache persistence: game data plus sort implementation.
+   * Mixes in {@link sortPermutationCoreSource} and {@link recipeSortSource} so comparator changes
+   * yield a new key without a manual schema bump.
    */
   function computeCatalogSortPermFingerprint(itemsPayload, blockTypesPayload) {
     let h = 2166136261 >>> 0;
-    h = fnv1a32Update(h, "sortperm:" + SORT_PERM_PERSIST_SCHEMA + "\0");
+    h = fnv1a32Update(h, "sortperm-core:\0");
+    h = fnv1a32Update(h, sortPermutationCoreSource);
+    h = fnv1a32Update(h, "recipeSort:\0");
+    h = fnv1a32Update(h, recipeSortSource);
+    h = fnv1a32Update(h, "objTypeGroups:\0");
+    h = fnv1a32Update(h, JSON.stringify(OBJECT_TYPE_FILTER_GROUPS));
     const list = itemsPayload.ItemList;
     h = fnv1a32Update(h, String(list.length));
     for (let i = 0; i < list.length; i++) {
@@ -3550,7 +3622,7 @@ function createSortCacheWorker() {
     h = fnv1a32Update(h, JSON.stringify(itemsPayload.recipesByIngredient));
     h = fnv1a32Update(h, "bt:");
     h = fnv1a32Update(h, JSON.stringify(blockTypesPayload));
-    return "sp" + SORT_PERM_PERSIST_SCHEMA + "-" + h.toString(16);
+    return "sp-" + h.toString(16);
   }
 
   function getSortPermDb() {
@@ -3599,7 +3671,6 @@ function createSortCacheWorker() {
       ) {
         return;
       }
-      if (record.v !== SORT_PERM_PERSIST_SCHEMA) return;
       const n = data.ItemList.length;
       const keys = Object.keys(record.entries);
       for (let i = 0; i < keys.length; i++) {
@@ -3633,10 +3704,7 @@ function createSortCacheWorker() {
       await new Promise(function (resolve, reject) {
         const tx = db.transaction(SORT_PERM_STORE, "readwrite");
         const store = tx.objectStore(SORT_PERM_STORE);
-        const req = store.put(
-          { v: SORT_PERM_PERSIST_SCHEMA, entries: entries },
-          catalogId
-        );
+        const req = store.put({ entries: entries }, catalogId);
         req.onsuccess = function () {
           resolve(undefined);
         };
@@ -3746,7 +3814,8 @@ function createSortCacheWorker() {
           job.col,
           job.dirStr,
           job.secondary,
-          job.wisdomSlice
+          job.wisdomSlice,
+          job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all"
         );
         if (sortPermCache.has(key)) continue;
         const perm = buildSortPermutation({
@@ -3754,6 +3823,8 @@ function createSortCacheWorker() {
           dir: job.dir,
           secondary: job.secondary,
           wisdom: job.wisdomSlice,
+          objectTypeFilterMode:
+            job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all",
         });
         sortPermCache.set(key, perm);
         updateSortPrecalcDebugPanel();
@@ -3775,7 +3846,8 @@ function createSortCacheWorker() {
           job.col,
           job.dirStr,
           job.secondary,
-          job.wisdomSlice
+          job.wisdomSlice,
+          job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all"
         );
         if (sortPermCache.has(key)) continue;
         const perm = buildSortPermutation({
@@ -3783,6 +3855,8 @@ function createSortCacheWorker() {
           dir: job.dir,
           secondary: job.secondary,
           wisdom: job.wisdomSlice,
+          objectTypeFilterMode:
+            job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all",
         });
         sortPermCache.set(key, perm);
         updateSortPrecalcDebugPanel();
@@ -3818,7 +3892,13 @@ function createSortCacheWorker() {
     const pendingJobs = [];
     for (let i = 0; i < allJobs.length; i++) {
       const job = allJobs[i];
-      const key = sortCacheKey(job.col, job.dirStr, job.secondary, job.wisdomSlice);
+      const key = sortCacheKey(
+        job.col,
+        job.dirStr,
+        job.secondary,
+        job.wisdomSlice,
+        job.objectTypeFilterMode != null ? job.objectTypeFilterMode : "all"
+      );
       if (!sortPermCache.has(key)) pendingJobs.push(job);
     }
 
@@ -3839,6 +3919,7 @@ function createSortCacheWorker() {
           recipesByProduct: data.recipesByProduct,
           recipesByIngredient: data.recipesByIngredient,
           blockTypes: blockTypes,
+          objectTypeSortRank: Object.fromEntries(objectTypeSortRankByType),
         };
 
         function hideSortPrecalcWhenComplete() {
@@ -3992,8 +4073,16 @@ function createSortCacheWorker() {
    * After a synchronous filter+sort, record the full-list permutation for this key on idle so the
    * background builder skips it and later renders can use the fast path.
    */
-  function scheduleSortPermCacheFill(col, dirStr, secondary, wisdomSlice) {
-    const permKey = sortCacheKey(col, dirStr, secondary, wisdomSlice);
+  function scheduleSortPermCacheFill(
+    col,
+    dirStr,
+    secondary,
+    wisdomSlice,
+    objectTypeFilterMode
+  ) {
+    const mode =
+      objectTypeFilterMode != null ? objectTypeFilterMode : "all";
+    const permKey = sortCacheKey(col, dirStr, secondary, wisdomSlice, mode);
     if (sortPermCache.has(permKey)) return;
     const epoch = sortCacheBuildEpoch;
     function run() {
@@ -4011,6 +4100,7 @@ function createSortCacheWorker() {
         dir: dir,
         secondary: secondary,
         wisdom: wisdomSlice,
+        objectTypeFilterMode: mode,
       });
       if (epoch !== sortCacheBuildEpoch) return;
       if (sortPermCache.has(permKey)) return;
@@ -4679,7 +4769,15 @@ function createSortCacheWorker() {
 
     const dirStr = sortDir === "asc" ? "asc" : "desc";
     const wisdomSlice = PRICE_SORT_COLUMN_IDS.has(sortColumn) ? wisdomStat : 0;
-    const permKey = sortCacheKey(sortColumn, dirStr, secondarySortMode, wisdomSlice);
+    const objectTypeFilterMode =
+      objectTypeFilterValue() === "" ? "all" : "narrow";
+    const permKey = sortCacheKey(
+      sortColumn,
+      dirStr,
+      secondarySortMode,
+      wisdomSlice,
+      objectTypeFilterMode
+    );
     const perm = sortPermCache.get(permKey);
     const nItems = data.ItemList.length;
 
@@ -4711,7 +4809,8 @@ function createSortCacheWorker() {
         sortColumn,
         dirStr,
         secondarySortMode,
-        wisdomSlice
+        wisdomSlice,
+        objectTypeFilterMode
       );
     }
 
