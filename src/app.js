@@ -1872,6 +1872,11 @@ function createSortCacheWorker() {
       subHead.textContent = "Used in:";
       containerEl.appendChild(subHead);
 
+      const usedTitle = document.createElement("div");
+      usedTitle.className = "recipe-tooltip__title";
+      usedTitle.textContent = displayName(item) || item.name || "";
+      containerEl.appendChild(usedTitle);
+
       const ulUsed = document.createElement("ul");
       ulUsed.className = "recipe-tooltip__list recipe-tooltip__list--used-in";
       const usedInProductsBySetCache = new Map();
