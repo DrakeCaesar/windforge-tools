@@ -71,8 +71,8 @@ function createSortCacheWorker() {
   const SORT_PERM_IDB_NAME = "windforge-item-catalog";
   const SORT_PERM_STORE = "sortPermCache";
 
-  /** IndexedDB key for icon data URLs in {@link SORT_PERM_STORE} (distinct from sort key = raw catalog id). */
-  function iconCacheIdbKey(catalogId) {
+  /** @deprecated Old icon-only record key (same store); removed on read/write after migration. */
+  function legacyIconCacheIdbKey(catalogId) {
     return catalogId + ":icons";
   }
 
@@ -3625,9 +3625,13 @@ function createSortCacheWorker() {
    * Identifies the catalog for sort-cache persistence: game data plus sort implementation.
    * Mixes in {@link sortPermutationCoreSource} and {@link recipeSortSource} so comparator changes
    * yield a new key without a manual schema bump.
+   * Build-time `__DEPLOY_BUILD_ID__` (Vite define) invalidates IndexedDB after each deploy
+   * when it changes (commit SHA, VITE_DEPLOY_ID, or a fresh timestamp per production build).
    */
   function computeCatalogSortPermFingerprint(itemsPayload, blockTypesPayload) {
     let h = 2166136261 >>> 0;
+    h = fnv1a32Update(h, "deploy:\0");
+    h = fnv1a32Update(h, __DEPLOY_BUILD_ID__);
     h = fnv1a32Update(h, "sortperm-core:\0");
     h = fnv1a32Update(h, sortPermutationCoreSource);
     h = fnv1a32Update(h, "invIconOrder:\0");
@@ -3678,7 +3682,31 @@ function createSortCacheWorker() {
     return sortPermDbPromise;
   }
 
-  async function restoreSortPermCacheFromDisk(catalogId) {
+  function applyIconRecordToMaps(record) {
+    if (!record || typeof record !== "object") return;
+    if (record.raw && typeof record.raw === "object") {
+      const rk = Object.keys(record.raw);
+      for (let i = 0; i < rk.length; i++) {
+        const k = rk[i];
+        const v = record.raw[k];
+        if (typeof v === "string") rawIconDataUrlCache.set(k, v);
+      }
+    }
+    if (record.tinted && typeof record.tinted === "object") {
+      const tk = Object.keys(record.tinted);
+      for (let i = 0; i < tk.length; i++) {
+        const k = tk[i];
+        const v = record.tinted[k];
+        if (typeof v === "string") tintedIconDataUrlCache.set(k, v);
+      }
+    }
+  }
+
+  /**
+   * One IndexedDB key per catalog (`sortPermCacheCatalogId`): `{ entries, raw, tinted }`.
+   * Migrates legacy `{ raw, tinted }` stored at `catalogId + ':icons'` once, then deletes it.
+   */
+  async function restoreCatalogCachesFromDisk(catalogId) {
     if (!catalogId || typeof indexedDB === "undefined") return;
     try {
       const db = await getSortPermDb();
@@ -3694,38 +3722,84 @@ function createSortCacheWorker() {
           reject(req.error);
         };
       });
-      if (
-        !record ||
-        typeof record !== "object" ||
-        !record.entries ||
-        typeof record.entries !== "object"
-      ) {
-        return;
+      if (record && typeof record === "object" && record.entries && typeof record.entries === "object") {
+        const n = data.ItemList.length;
+        const keys = Object.keys(record.entries);
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          const buf = record.entries[key];
+          if (!(buf instanceof ArrayBuffer)) continue;
+          const perm = new Int32Array(buf);
+          if (perm.length !== n) continue;
+          sortPermCache.set(key, perm);
+        }
       }
-      const n = data.ItemList.length;
-      const keys = Object.keys(record.entries);
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        const buf = record.entries[key];
-        if (!(buf instanceof ArrayBuffer)) continue;
-        const perm = new Int32Array(buf);
-        if (perm.length !== n) continue;
-        sortPermCache.set(key, perm);
+      const hasMergedIcons =
+        record &&
+        typeof record === "object" &&
+        ("raw" in record || "tinted" in record);
+      if (hasMergedIcons) {
+        applyIconRecordToMaps(record);
+      } else {
+        const legacy = await new Promise(function (resolve, reject) {
+          const tx = db.transaction(SORT_PERM_STORE, "readonly");
+          const store = tx.objectStore(SORT_PERM_STORE);
+          const req = store.get(legacyIconCacheIdbKey(catalogId));
+          req.onsuccess = function () {
+            resolve(req.result);
+          };
+          req.onerror = function () {
+            reject(req.error);
+          };
+        });
+        if (legacy && typeof legacy === "object") {
+          applyIconRecordToMaps(legacy);
+          await new Promise(function (resolve, reject) {
+            const tx = db.transaction(SORT_PERM_STORE, "readwrite");
+            const store = tx.objectStore(SORT_PERM_STORE);
+            const req = store.delete(legacyIconCacheIdbKey(catalogId));
+            req.onsuccess = function () {
+              resolve(undefined);
+            };
+            req.onerror = function () {
+              reject(req.error);
+            };
+          });
+        }
       }
     } catch (e) {
-      console.warn("[Windforge item catalog] sort perm cache restore failed", e);
+      console.warn("[Windforge item catalog] catalog cache restore failed", e);
     }
   }
 
-  async function restoreIconCachesFromDisk(catalogId) {
+  async function deleteLegacyIconCacheKeyIfPresent(db, catalogId) {
+    await new Promise(function (resolve, reject) {
+      const tx = db.transaction(SORT_PERM_STORE, "readwrite");
+      const store = tx.objectStore(SORT_PERM_STORE);
+      const req = store.delete(legacyIconCacheIdbKey(catalogId));
+      req.onsuccess = function () {
+        resolve(undefined);
+      };
+      req.onerror = function () {
+        reject(req.error);
+      };
+    });
+  }
+
+  async function persistCatalogCachesToDiskNow(epochForGen, catalogIdForWrite) {
+    if (epochForGen !== sortCacheBuildEpoch) return;
+    const catalogId = catalogIdForWrite || sortPermCacheCatalogId;
     if (!catalogId || typeof indexedDB === "undefined") return;
+    const hasSortMem = sortPermCache.size > 0;
+    const hasIconsMem = rawIconDataUrlCache.size > 0 || tintedIconDataUrlCache.size > 0;
+    if (!hasSortMem && !hasIconsMem) return;
     try {
       const db = await getSortPermDb();
       if (!db) return;
-      const record = await new Promise(function (resolve, reject) {
+      const existing = await new Promise(function (resolve, reject) {
         const tx = db.transaction(SORT_PERM_STORE, "readonly");
         const store = tx.objectStore(SORT_PERM_STORE);
-        const req = store.get(iconCacheIdbKey(catalogId));
+        const req = store.get(catalogId);
         req.onsuccess = function () {
           resolve(req.result);
         };
@@ -3733,47 +3807,34 @@ function createSortCacheWorker() {
           reject(req.error);
         };
       });
-      if (!record || typeof record !== "object") return;
-      if (record.raw && typeof record.raw === "object") {
-        const rk = Object.keys(record.raw);
-        for (let i = 0; i < rk.length; i++) {
-          const k = rk[i];
-          const v = record.raw[k];
-          if (typeof v === "string") rawIconDataUrlCache.set(k, v);
-        }
+      let entries = {};
+      if (hasSortMem) {
+        sortPermCache.forEach(function (perm, key) {
+          if (!(perm instanceof Int32Array)) return;
+          entries[key] = perm.buffer.slice(
+            perm.byteOffset,
+            perm.byteOffset + perm.byteLength
+          );
+        });
+      } else if (existing && existing.entries && typeof existing.entries === "object") {
+        entries = existing.entries;
       }
-      if (record.tinted && typeof record.tinted === "object") {
-        const tk = Object.keys(record.tinted);
-        for (let i = 0; i < tk.length; i++) {
-          const k = tk[i];
-          const v = record.tinted[k];
-          if (typeof v === "string") tintedIconDataUrlCache.set(k, v);
-        }
+      let raw = {};
+      if (hasIconsMem) {
+        raw = Object.fromEntries(rawIconDataUrlCache);
+      } else if (existing && existing.raw && typeof existing.raw === "object") {
+        raw = existing.raw;
       }
-    } catch (e) {
-      console.warn("[Windforge item catalog] icon data URL cache restore failed", e);
-    }
-  }
-
-  async function persistSortPermCacheToDiskNow(epochForGen, catalogIdForWrite) {
-    if (epochForGen !== sortCacheBuildEpoch) return;
-    const catalogId = catalogIdForWrite || sortPermCacheCatalogId;
-    if (!catalogId || sortPermCache.size === 0 || typeof indexedDB === "undefined") return;
-    try {
-      const db = await getSortPermDb();
-      if (!db) return;
-      const entries = {};
-      sortPermCache.forEach(function (perm, key) {
-        if (!(perm instanceof Int32Array)) return;
-        entries[key] = perm.buffer.slice(
-          perm.byteOffset,
-          perm.byteOffset + perm.byteLength
-        );
-      });
+      let tinted = {};
+      if (hasIconsMem) {
+        tinted = Object.fromEntries(tintedIconDataUrlCache);
+      } else if (existing && existing.tinted && typeof existing.tinted === "object") {
+        tinted = existing.tinted;
+      }
       await new Promise(function (resolve, reject) {
         const tx = db.transaction(SORT_PERM_STORE, "readwrite");
         const store = tx.objectStore(SORT_PERM_STORE);
-        const req = store.put({ entries: entries }, catalogId);
+        const req = store.put({ entries: entries, raw: raw, tinted: tinted }, catalogId);
         req.onsuccess = function () {
           resolve(undefined);
         };
@@ -3781,8 +3842,9 @@ function createSortCacheWorker() {
           reject(req.error);
         };
       });
+      await deleteLegacyIconCacheKeyIfPresent(db, catalogId);
     } catch (e) {
-      console.warn("[Windforge item catalog] sort perm cache persist failed", e);
+      console.warn("[Windforge item catalog] catalog cache persist failed", e);
     }
   }
 
@@ -3800,7 +3862,7 @@ function createSortCacheWorker() {
     cancelSortPermPersistTimer();
     sortPermPersistTimer = setTimeout(function () {
       sortPermPersistTimer = null;
-      void persistSortPermCacheToDiskNow(capturedEpoch, capturedCatalogId);
+      void persistCatalogCachesToDiskNow(capturedEpoch, capturedCatalogId);
     }, 1500);
   }
 
@@ -3808,33 +3870,7 @@ function createSortCacheWorker() {
     cancelSortPermPersistTimer();
     const epoch = sortCacheBuildEpoch;
     const catalogId = sortPermCacheCatalogId;
-    void persistSortPermCacheToDiskNow(epoch, catalogId);
-  }
-
-  async function persistIconCachesToDiskNow(epochForGen, catalogIdForWrite) {
-    if (epochForGen !== sortCacheBuildEpoch) return;
-    const catalogId = catalogIdForWrite || sortPermCacheCatalogId;
-    if (!catalogId || typeof indexedDB === "undefined") return;
-    if (rawIconDataUrlCache.size === 0 && tintedIconDataUrlCache.size === 0) return;
-    try {
-      const db = await getSortPermDb();
-      if (!db) return;
-      const raw = Object.fromEntries(rawIconDataUrlCache);
-      const tinted = Object.fromEntries(tintedIconDataUrlCache);
-      await new Promise(function (resolve, reject) {
-        const tx = db.transaction(SORT_PERM_STORE, "readwrite");
-        const store = tx.objectStore(SORT_PERM_STORE);
-        const req = store.put({ raw: raw, tinted: tinted }, iconCacheIdbKey(catalogId));
-        req.onsuccess = function () {
-          resolve(undefined);
-        };
-        req.onerror = function () {
-          reject(req.error);
-        };
-      });
-    } catch (e) {
-      console.warn("[Windforge item catalog] icon data URL cache persist failed", e);
-    }
+    void persistCatalogCachesToDiskNow(epoch, catalogId);
   }
 
   function cancelIconCachePersistTimer() {
@@ -3851,7 +3887,7 @@ function createSortCacheWorker() {
     cancelIconCachePersistTimer();
     iconCachePersistTimer = setTimeout(function () {
       iconCachePersistTimer = null;
-      void persistIconCachesToDiskNow(capturedEpoch, capturedCatalogId);
+      void persistCatalogCachesToDiskNow(capturedEpoch, capturedCatalogId);
     }, 1500);
   }
 
@@ -3859,7 +3895,7 @@ function createSortCacheWorker() {
     cancelIconCachePersistTimer();
     const epoch = sortCacheBuildEpoch;
     const catalogId = sortPermCacheCatalogId;
-    void persistIconCachesToDiskNow(epoch, catalogId);
+    void persistCatalogCachesToDiskNow(epoch, catalogId);
   }
 
   /**
@@ -5415,8 +5451,7 @@ function createSortCacheWorker() {
       blockTypes = blocksPayload.blockTypes;
     }
     sortPermCacheCatalogId = computeCatalogSortPermFingerprint(data, blockTypes);
-    await restoreSortPermCacheFromDisk(sortPermCacheCatalogId);
-    await restoreIconCachesFromDisk(sortPermCacheCatalogId);
+    await restoreCatalogCachesFromDisk(sortPermCacheCatalogId);
     const persisted = readPersistedUI();
     if (persisted) {
       sortColumn = persisted.sortColumn;
