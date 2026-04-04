@@ -1019,6 +1019,20 @@ function createSortCacheWorker() {
     return c.toDataURL("image/png");
   }
 
+  /** Decode a persisted icon data URL back to an image for tinting (no network). */
+  function loadRasterFromDataUrl(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () {
+        resolve(img);
+      };
+      img.onerror = function () {
+        reject(new Error("data URL decode failed"));
+      };
+      img.src = dataUrl;
+    });
+  }
+
   /**
    * One-time decode from network (or atlas file) into an {@link HTMLImageElement} for processing.
    * Callers copy pixels into {@link rawIconDataUrlCache} / {@link tintedIconDataUrlCache}; displayed
@@ -1031,6 +1045,18 @@ function createSortCacheWorker() {
       return imageLoadPromises.get(url);
     }
     if (url.indexOf("atlas:") === 0) {
+      if (rawIconDataUrlCache.has(url)) {
+        const p = loadRasterFromDataUrl(rawIconDataUrlCache.get(url)).then(
+          function (img) {
+            return img;
+          }
+        );
+        p.catch(function () {
+          imageLoadPromises.delete(url);
+        });
+        imageLoadPromises.set(url, p);
+        return p;
+      }
       const norm = url.slice(6);
       const p = new Promise(function (resolve, reject) {
         const atlas = data.iconAtlas;
@@ -2428,6 +2454,16 @@ function createSortCacheWorker() {
     if (!tint && rawIconDataUrlCache.has(url)) {
       return rawIconDataUrlCache.get(url);
     }
+    if (tint && tk && rawIconDataUrlCache.has(url)) {
+      const rawDataUrl = rawIconDataUrlCache.get(url);
+      const loaded = await loadRasterFromDataUrl(rawDataUrl);
+      const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+        ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+        : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
+      if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
+      scheduleIconCachePersist();
+      return dataUrl;
+    }
     const loaded = await loadImageForUrl(url);
     if (tint) {
       const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
@@ -2587,6 +2623,54 @@ function createSortCacheWorker() {
       if (cached) {
         img.classList.add("item-icon--tinted");
         img.src = cached;
+        return;
+      }
+      const rawDataUrl = rawIconDataUrlCache.get(url);
+      if (rawDataUrl && tint) {
+        void loadRasterFromDataUrl(rawDataUrl)
+          .then(function (loaded) {
+            const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+              ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+              : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
+            if (dataUrl) {
+              if (tk) {
+                tintedIconDataUrlCache.set(tk, dataUrl);
+              }
+              scheduleIconCachePersist();
+              img.classList.add("item-icon--tinted");
+              img.src = dataUrl;
+            }
+          })
+          .catch(function () {
+            loadImageForUrl(url)
+              .then(function (loaded) {
+                if (tint) {
+                  const dataUrl = HUE_PALETTE_REMAP.has(item && item.name)
+                    ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
+                    : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
+                  if (dataUrl) {
+                    if (tk) {
+                      tintedIconDataUrlCache.set(tk, dataUrl);
+                    }
+                    scheduleIconCachePersist();
+                    img.classList.add("item-icon--tinted");
+                    img.src = dataUrl;
+                    return;
+                  }
+                }
+                const raw = canvasToDataUrlFromImage(loaded);
+                rawIconDataUrlCache.set(url, raw);
+                scheduleIconCachePersist();
+                img.src = raw;
+              })
+              .catch(function () {
+                fatal(
+                  new Error(
+                    "Icon decode failed for " + String(item && item.name) + ": " + String(url)
+                  )
+                );
+              });
+          });
         return;
       }
     } else if (rawIconDataUrlCache.has(url)) {
@@ -4399,7 +4483,7 @@ function createSortCacheWorker() {
 
     const url = iconUrlFor(item);
       const img = document.createElement("img");
-      img.loading = "lazy";
+      img.loading = "eager";
       const tk = tintCacheKey(url, item);
     const hadTintCache = Boolean(tk && tintedIconDataUrlCache.get(tk));
     wireCatalogItemIcon(img, item, url, {
@@ -4864,15 +4948,8 @@ function createSortCacheWorker() {
     }
   }
 
-  /**
-   * @param {{ profile?: boolean }} [opts]
-   */
-  function render(opts) {
-    const profile = opts && opts.profile;
-    const t0 = profile ? performance.now() : 0;
-
-    const q = (document.getElementById("q").value || "").trim();
-
+  /** Align current sort column with visible stat columns (same rules as table headers). */
+  function prepareSortColumnForView() {
     if (isObjectTypeFiltered() && sortColumn === "objectType") {
       sortColumn = "display";
     }
@@ -4945,9 +5022,12 @@ function createSortCacheWorker() {
     ) {
       sortColumn = "display";
     }
+  }
 
-    const t1 = profile ? performance.now() : 0;
-
+  /** Filtered + sorted list for the current UI (query, filters, sort permutation or compareItems). */
+  function getFilteredSortedItemList() {
+    prepareSortColumnForView();
+    const q = (document.getElementById("q").value || "").trim();
     const dirStr = sortDir === "asc" ? "asc" : "desc";
     const wisdomSlice = PRICE_SORT_COLUMN_IDS.has(sortColumn) ? wisdomStat : 0;
     const objectTypeFilterMode =
@@ -4994,8 +5074,42 @@ function createSortCacheWorker() {
         objectTypeFilterMode
       );
     }
+    return list;
+  }
 
-    const t2 = profile ? performance.now() : 0;
+  /**
+   * After IndexedDB restores icon data URLs, fill tint-from-raw for visible rows so first paint
+   * does not hit the network/atlas.
+   */
+  async function primeIconsForInitialViewport(list) {
+    const wrap = getBodyScrollPort();
+    const h =
+      wrap && wrap.clientHeight > 0
+        ? wrap.clientHeight
+        : typeof window !== "undefined"
+          ? window.innerHeight
+          : 800;
+    const n = Math.min(
+      list.length,
+      Math.ceil(h / ROW_HEIGHT) + VIRTUAL_OVERSCAN + 4
+    );
+    for (let i = 0; i < n; i++) {
+      const item = list[i];
+      if (!item) continue;
+      await ensureIconDataUrlForItem(item);
+    }
+  }
+
+  /**
+   * @param {{ profile?: boolean }} [opts]
+   */
+  function render(opts) {
+    const profile = opts && opts.profile;
+    const t0 = profile ? performance.now() : 0;
+
+    const list = getFilteredSortedItemList();
+
+    const t1 = profile ? performance.now() : 0;
 
     const visibleColIds = visibleColumns()
       .map(function (c) {
@@ -5062,23 +5176,21 @@ function createSortCacheWorker() {
     const t5 = profile ? performance.now() : 0;
 
     if (profile) {
-      const filterMs = t1 - t0;
-      const sortMs = t2 - t1;
-      const theadMs = t3 - t2;
+      const listMs = t1 - t0;
+      const theadMs = t3 - t1;
       const tbodyDomMs = t4 - t3;
       const persistMs = t5 - t4;
       const totalMs = t5 - t0;
-      const sumMs = filterMs + sortMs + theadMs + tbodyDomMs + persistMs;
+      const sumMs = listMs + theadMs + tbodyDomMs + persistMs;
       console.log(
         "[Windforge item catalog] sort / render — sync JS only (ends before layout, paint, images)",
         {
           sortColumn: sortColumn,
           sortDir: sortDir,
           row_count: list.length,
-          filter_ms: Number(filterMs.toFixed(3)),
-          sort_ms: Number(sortMs.toFixed(3)),
+          list_ms: Number(listMs.toFixed(3)),
           thead_ms: Number(theadMs.toFixed(3)),
-          stat_decimals_ms: Number((t2d - t2).toFixed(3)),
+          stat_decimals_ms: Number((t2d - t1).toFixed(3)),
           col_width_ms: Number((t2w - t2d).toFixed(3)),
           colgroup_thead_ms: Number((t3 - t2w).toFixed(3)),
           tbody_dom_ms: Number(tbodyDomMs.toFixed(3)),
@@ -5492,6 +5604,9 @@ function createSortCacheWorker() {
       hideMastercraftTierEl.checked = true;
     }
 
+    if (rawIconDataUrlCache.size > 0 || tintedIconDataUrlCache.size > 0) {
+      await primeIconsForInitialViewport(getFilteredSortedItemList());
+    }
     render();
     scheduleBackgroundSortPermCacheBuild();
     scheduleBackgroundIconWarmup();
