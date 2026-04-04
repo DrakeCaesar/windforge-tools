@@ -8,7 +8,7 @@ Requires Python 3.10+, Pillow, and imageio (`pip install -r requirements.txt`). 
 immediately with an error if anything is missing.
 
 Also extracts block stats from Data/objects/sharedblockinfo.lua into `public/sharedblockinfo.json`
-(and `.gz`) — hitPoints, mass, buoyancy, impactDamageMult per block type.
+— hitPoints, mass, buoyancy, impactDamageMult per block type.
 
 Parses Data/objects/crafting/recipes.lua into recipesByProduct (ingredients to craft an item)
 and recipesByIngredient (recipe sets that use an item as an ingredient, one row per set).
@@ -827,11 +827,7 @@ def main() -> int:
         blocks_payload, ensure_ascii=False, separators=(",", ":")
     )
     blocks_out_path.write_text(blocks_json_text, encoding="utf-8")
-    gz_blocks_path = blocks_out_path.with_name(blocks_out_path.name + ".gz")
-    gz_blocks_path.write_bytes(
-        gzip.compress(blocks_json_text.encode("utf-8"), compresslevel=9)
-    )
-    print(f"Wrote {blocks_out_path} and {gz_blocks_path} (gzip).")
+    print(f"Wrote {blocks_out_path}.")
     return 0
 
 

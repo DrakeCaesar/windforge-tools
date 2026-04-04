@@ -1,9 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="app-boot-pending">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Windforge ItemList</title>
+    <!-- Hide UI until catalog + first render complete (avoids unstyled / empty-table flash before the module runs). -->
+    <style>
+      html.app-boot-pending {
+        background: #0f1218;
+      }
+      html.app-boot-pending body {
+        visibility: hidden !important;
+      }
+    </style>
   </head>
   <body>
     <header class="top">

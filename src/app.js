@@ -69,8 +69,12 @@ function createSortCacheWorker() {
   let sortPermCacheGenerationStartMs = null;
 
   const SORT_PERM_IDB_NAME = "windforge-item-catalog";
-  const SORT_PERM_IDB_VER = 1;
   const SORT_PERM_STORE = "sortPermCache";
+
+  /** IndexedDB key for icon data URLs in {@link SORT_PERM_STORE} (distinct from sort key = raw catalog id). */
+  function iconCacheIdbKey(catalogId) {
+    return catalogId + ":icons";
+  }
 
   /** Fingerprint for the current itemlist + recipes + blocks; used as IndexedDB key. */
   let sortPermCacheCatalogId = "";
@@ -80,6 +84,9 @@ function createSortCacheWorker() {
 
   /** @type {ReturnType<typeof setTimeout>|null} */
   let sortPermPersistTimer = null;
+
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let iconCachePersistTimer = null;
 
   /** From sharedblockinfo.json: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
@@ -558,13 +565,13 @@ function createSortCacheWorker() {
 
   /**
    * Tinted icon bitmaps as data URLs, keyed by source PNG + colour names.
-   * Infinite in-memory cache only: no cap, no eviction, no disk/sessionStorage — cleared on page unload.
+   * Persisted to IndexedDB (same catalog key as sort permutations) when entries change.
    */
   const tintedIconDataUrlCache = new Map();
 
   /**
    * Non-tinted sprites as data URLs (same key as {@link iconUrlFor} / atlas refs).
-   * Infinite in-memory cache only; UI never assigns file URLs to {@code <img>} once this is warm.
+   * Persisted to IndexedDB with {@link tintedIconDataUrlCache}.
    */
   const rawIconDataUrlCache = new Map();
 
@@ -2427,10 +2434,12 @@ function createSortCacheWorker() {
         ? applyHuePaletteRemap(loaded, tint.primary, tint.secondary)
         : applyEquipmentMaskTint(loaded, tint.primary, tint.secondary);
       if (tk) tintedIconDataUrlCache.set(tk, dataUrl);
+      scheduleIconCachePersist();
       return dataUrl;
     }
     const raw = canvasToDataUrlFromImage(loaded);
     rawIconDataUrlCache.set(url, raw);
+    scheduleIconCachePersist();
     return raw;
   }
 
@@ -2594,6 +2603,7 @@ function createSortCacheWorker() {
             if (tk) {
               tintedIconDataUrlCache.set(tk, dataUrl);
             }
+            scheduleIconCachePersist();
             img.classList.add("item-icon--tinted");
             img.src = dataUrl;
             return;
@@ -2601,6 +2611,7 @@ function createSortCacheWorker() {
         }
         const raw = canvasToDataUrlFromImage(loaded);
         rawIconDataUrlCache.set(url, raw);
+        scheduleIconCachePersist();
         img.src = raw;
       })
       .catch(function () {
@@ -2614,6 +2625,7 @@ function createSortCacheWorker() {
     const loaded = await loadImageForUrl(url);
     const raw = canvasToDataUrlFromImage(loaded);
     rawIconDataUrlCache.set(url, raw);
+    scheduleIconCachePersist();
   }
 
   /** Background: same work as old startup preload — fills {@link rawIconDataUrlCache} / {@link tintedIconDataUrlCache}. */
@@ -2685,6 +2697,9 @@ function createSortCacheWorker() {
       void preloadAllIcons()
         .then(function () {
           return buildLiveIconPoolMissing();
+        })
+        .then(function () {
+          flushIconCachePersist();
         })
         .catch(function (e) {
           console.warn("[Windforge item catalog] background icon warmup failed", e);
@@ -3645,7 +3660,7 @@ function createSortCacheWorker() {
     if (typeof indexedDB === "undefined") return Promise.resolve(null);
     if (sortPermDbPromise) return sortPermDbPromise;
     sortPermDbPromise = new Promise(function (resolve, reject) {
-      const req = indexedDB.open(SORT_PERM_IDB_NAME, SORT_PERM_IDB_VER);
+      const req = indexedDB.open(SORT_PERM_IDB_NAME);
       req.onerror = function () {
         sortPermDbPromise = null;
         reject(req.error);
@@ -3699,6 +3714,44 @@ function createSortCacheWorker() {
       }
     } catch (e) {
       console.warn("[Windforge item catalog] sort perm cache restore failed", e);
+    }
+  }
+
+  async function restoreIconCachesFromDisk(catalogId) {
+    if (!catalogId || typeof indexedDB === "undefined") return;
+    try {
+      const db = await getSortPermDb();
+      if (!db) return;
+      const record = await new Promise(function (resolve, reject) {
+        const tx = db.transaction(SORT_PERM_STORE, "readonly");
+        const store = tx.objectStore(SORT_PERM_STORE);
+        const req = store.get(iconCacheIdbKey(catalogId));
+        req.onsuccess = function () {
+          resolve(req.result);
+        };
+        req.onerror = function () {
+          reject(req.error);
+        };
+      });
+      if (!record || typeof record !== "object") return;
+      if (record.raw && typeof record.raw === "object") {
+        const rk = Object.keys(record.raw);
+        for (let i = 0; i < rk.length; i++) {
+          const k = rk[i];
+          const v = record.raw[k];
+          if (typeof v === "string") rawIconDataUrlCache.set(k, v);
+        }
+      }
+      if (record.tinted && typeof record.tinted === "object") {
+        const tk = Object.keys(record.tinted);
+        for (let i = 0; i < tk.length; i++) {
+          const k = tk[i];
+          const v = record.tinted[k];
+          if (typeof v === "string") tintedIconDataUrlCache.set(k, v);
+        }
+      }
+    } catch (e) {
+      console.warn("[Windforge item catalog] icon data URL cache restore failed", e);
     }
   }
 
@@ -3758,9 +3811,61 @@ function createSortCacheWorker() {
     void persistSortPermCacheToDiskNow(epoch, catalogId);
   }
 
+  async function persistIconCachesToDiskNow(epochForGen, catalogIdForWrite) {
+    if (epochForGen !== sortCacheBuildEpoch) return;
+    const catalogId = catalogIdForWrite || sortPermCacheCatalogId;
+    if (!catalogId || typeof indexedDB === "undefined") return;
+    if (rawIconDataUrlCache.size === 0 && tintedIconDataUrlCache.size === 0) return;
+    try {
+      const db = await getSortPermDb();
+      if (!db) return;
+      const raw = Object.fromEntries(rawIconDataUrlCache);
+      const tinted = Object.fromEntries(tintedIconDataUrlCache);
+      await new Promise(function (resolve, reject) {
+        const tx = db.transaction(SORT_PERM_STORE, "readwrite");
+        const store = tx.objectStore(SORT_PERM_STORE);
+        const req = store.put({ raw: raw, tinted: tinted }, iconCacheIdbKey(catalogId));
+        req.onsuccess = function () {
+          resolve(undefined);
+        };
+        req.onerror = function () {
+          reject(req.error);
+        };
+      });
+    } catch (e) {
+      console.warn("[Windforge item catalog] icon data URL cache persist failed", e);
+    }
+  }
+
+  function cancelIconCachePersistTimer() {
+    if (iconCachePersistTimer != null) {
+      clearTimeout(iconCachePersistTimer);
+      iconCachePersistTimer = null;
+    }
+  }
+
+  function scheduleIconCachePersist() {
+    if (typeof indexedDB === "undefined") return;
+    const capturedEpoch = sortCacheBuildEpoch;
+    const capturedCatalogId = sortPermCacheCatalogId;
+    cancelIconCachePersistTimer();
+    iconCachePersistTimer = setTimeout(function () {
+      iconCachePersistTimer = null;
+      void persistIconCachesToDiskNow(capturedEpoch, capturedCatalogId);
+    }, 1500);
+  }
+
+  function flushIconCachePersist() {
+    cancelIconCachePersistTimer();
+    const epoch = sortCacheBuildEpoch;
+    const catalogId = sortPermCacheCatalogId;
+    void persistIconCachesToDiskNow(epoch, catalogId);
+  }
+
   /**
    * Console: `await __windforgeNukeSortPermCache()` — clears in-memory sort permutations,
-   * deletes IndexedDB (`windforge-item-catalog`), invalidates price matrices, and rebuilds cache.
+   * deletes IndexedDB (`windforge-item-catalog`, including icon data URLs), invalidates price matrices,
+   * and rebuilds the sort cache.
    */
   async function nukeSortPermCacheFromConsole() {
     cancelBackgroundSortPermCacheBuild();
@@ -3797,7 +3902,7 @@ function createSortCacheWorker() {
     render();
     scheduleBackgroundSortPermCacheBuild();
     console.log(
-      "[Windforge item catalog] Sort permutation cache cleared (memory + IndexedDB). Rebuilding…"
+      "[Windforge item catalog] Sort + icon data URL caches cleared (memory + IndexedDB). Rebuilding…"
     );
   }
 
@@ -5232,10 +5337,23 @@ function createSortCacheWorker() {
       }
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error(url + ": " + res.status);
-      if (!res.body) throw new Error(url + ": missing response body");
-      const ds = new DecompressionStream("gzip");
-      const stream = res.body.pipeThrough(ds);
-      const text = await new Response(stream).text();
+      const buf = await res.arrayBuffer();
+      const u8 = new Uint8Array(buf);
+      /**
+       * If the first bytes are gzip magic, the payload is still compressed (typical static .json.gz).
+       * If not, treat as UTF-8 JSON: some stacks send Content-Encoding: gzip and the fetch layer
+       * already decompresses, so piping the body through gzip again fails and triggered the dev
+       * fallback fetch of the plain .json file (two 200s in the network tab).
+       */
+      const looksLikeGzip = u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b;
+      let text;
+      if (looksLikeGzip) {
+        const ds = new DecompressionStream("gzip");
+        const stream = new Response(buf).body.pipeThrough(ds);
+        text = await new Response(stream).text();
+      } else {
+        text = new TextDecoder().decode(buf);
+      }
       return JSON.parse(text);
     }
 
@@ -5259,7 +5377,7 @@ function createSortCacheWorker() {
 
     const [itemsPayload, blocksPayload] = await Promise.all([
       fetchCatalogFile("itemlist"),
-      fetchCatalogFile("sharedblockinfo"),
+      fetchJsonPlain(publicAssetUrl("sharedblockinfo.json")),
     ]);
 
     data = itemsPayload;
@@ -5267,6 +5385,9 @@ function createSortCacheWorker() {
 
     itemByName.clear();
     liveIconNodeByItemName.clear();
+    rawIconDataUrlCache.clear();
+    tintedIconDataUrlCache.clear();
+    imageLoadPromises.clear();
     recipeSortEngine.setData(itemsPayload);
     recipeSortEngine.clearCache();
     for (let i = 0; i < data.ItemList.length; i++) {
@@ -5295,6 +5416,7 @@ function createSortCacheWorker() {
     }
     sortPermCacheCatalogId = computeCatalogSortPermFingerprint(data, blockTypes);
     await restoreSortPermCacheFromDisk(sortPermCacheCatalogId);
+    await restoreIconCachesFromDisk(sortPermCacheCatalogId);
     const persisted = readPersistedUI();
     if (persisted) {
       sortColumn = persisted.sortColumn;
@@ -5342,4 +5464,41 @@ function createSortCacheWorker() {
 
   globalThis.__windforgeNukeSortPermCache = nukeSortPermCacheFromConsole;
 
-load();
+  /**
+   * Wait for fonts (if any), then two animation frames so layout/paint can settle before reveal.
+   */
+  function waitForFirstPaintReady() {
+    const fontsReady =
+      document.fonts && typeof document.fonts.ready === "object"
+        ? document.fonts.ready
+        : Promise.resolve(undefined);
+    return fontsReady.then(function () {
+      return new Promise(function (resolve) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(resolve);
+        });
+      });
+    });
+  }
+
+  async function boot() {
+    try {
+      await load();
+    } catch (err) {
+      console.error("[Windforge item catalog] Catalog load failed", err);
+      const c = document.getElementById("count");
+      if (c) {
+        c.textContent = "Load failed";
+        c.title = err && err.message ? err.message : String(err);
+      }
+    } finally {
+      try {
+        await waitForFirstPaintReady();
+      } catch (e) {
+        /* ignore */
+      }
+      document.documentElement.classList.remove("app-boot-pending");
+    }
+  }
+
+  void boot();
