@@ -62,6 +62,23 @@ function createSortCacheWorker() {
   /** Total permutation keys for the loaded catalog (for debug progress). */
   let sortCacheJobTotalCount = 0;
 
+  /**
+   * Bump when sort-column definitions or persist format change so disk cache is ignored.
+   */
+  const SORT_PERM_PERSIST_SCHEMA = 1;
+  const SORT_PERM_IDB_NAME = "windforge-item-catalog";
+  const SORT_PERM_IDB_VER = 1;
+  const SORT_PERM_STORE = "sortPermCache";
+
+  /** Fingerprint for the current itemlist + recipes + blocks; used as IndexedDB key. */
+  let sortPermCacheCatalogId = "";
+
+  /** @type {Promise<IDBDatabase|null>|null} */
+  let sortPermDbPromise = null;
+
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let sortPermPersistTimer = null;
+
   /** From sharedblockinfo.json: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
 
@@ -3470,6 +3487,7 @@ function createSortCacheWorker() {
   }
 
   function cancelBackgroundSortPermCacheBuild() {
+    cancelSortPermPersistTimer();
     terminateSortCacheMatrixWorker();
     terminateSortCacheWorkers();
     if (sortPermCacheIdleId == null) return;
@@ -3501,6 +3519,204 @@ function createSortCacheWorker() {
     barEl.setAttribute("aria-valuenow", String(Math.round(pct)));
     barEl.setAttribute("aria-valuemin", "0");
     barEl.setAttribute("aria-valuemax", "100");
+  }
+
+  function fnv1a32Update(h, str) {
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  /**
+   * Identifies the catalog for sort-cache persistence (item order, recipes, block stats).
+   */
+  function computeCatalogSortPermFingerprint(itemsPayload, blockTypesPayload) {
+    let h = 2166136261 >>> 0;
+    h = fnv1a32Update(h, "sortperm:" + SORT_PERM_PERSIST_SCHEMA + "\0");
+    const list = itemsPayload.ItemList;
+    h = fnv1a32Update(h, String(list.length));
+    for (let i = 0; i < list.length; i++) {
+      const name = list[i] && list[i].name;
+      h = fnv1a32Update(h, typeof name === "string" ? name : "");
+      h = fnv1a32Update(h, "\0");
+    }
+    h = fnv1a32Update(h, "src:");
+    h = fnv1a32Update(h, String(itemsPayload.source || ""));
+    h = fnv1a32Update(h, "recsrc:");
+    h = fnv1a32Update(h, String(itemsPayload.recipeSource || ""));
+    h = fnv1a32Update(h, "rp:");
+    h = fnv1a32Update(h, JSON.stringify(itemsPayload.recipesByProduct));
+    h = fnv1a32Update(h, "ri:");
+    h = fnv1a32Update(h, JSON.stringify(itemsPayload.recipesByIngredient));
+    h = fnv1a32Update(h, "bt:");
+    h = fnv1a32Update(h, JSON.stringify(blockTypesPayload));
+    return "sp" + SORT_PERM_PERSIST_SCHEMA + "-" + h.toString(16);
+  }
+
+  function getSortPermDb() {
+    if (typeof indexedDB === "undefined") return Promise.resolve(null);
+    if (sortPermDbPromise) return sortPermDbPromise;
+    sortPermDbPromise = new Promise(function (resolve, reject) {
+      const req = indexedDB.open(SORT_PERM_IDB_NAME, SORT_PERM_IDB_VER);
+      req.onerror = function () {
+        sortPermDbPromise = null;
+        reject(req.error);
+      };
+      req.onsuccess = function () {
+        resolve(req.result);
+      };
+      req.onupgradeneeded = function () {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(SORT_PERM_STORE)) {
+          db.createObjectStore(SORT_PERM_STORE);
+        }
+      };
+    });
+    return sortPermDbPromise;
+  }
+
+  async function restoreSortPermCacheFromDisk(catalogId) {
+    if (!catalogId || typeof indexedDB === "undefined") return;
+    try {
+      const db = await getSortPermDb();
+      if (!db) return;
+      const record = await new Promise(function (resolve, reject) {
+        const tx = db.transaction(SORT_PERM_STORE, "readonly");
+        const store = tx.objectStore(SORT_PERM_STORE);
+        const req = store.get(catalogId);
+        req.onsuccess = function () {
+          resolve(req.result);
+        };
+        req.onerror = function () {
+          reject(req.error);
+        };
+      });
+      if (
+        !record ||
+        typeof record !== "object" ||
+        !record.entries ||
+        typeof record.entries !== "object"
+      ) {
+        return;
+      }
+      if (record.v !== SORT_PERM_PERSIST_SCHEMA) return;
+      const n = data.ItemList.length;
+      const keys = Object.keys(record.entries);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const buf = record.entries[key];
+        if (!(buf instanceof ArrayBuffer)) continue;
+        const perm = new Int32Array(buf);
+        if (perm.length !== n) continue;
+        sortPermCache.set(key, perm);
+      }
+    } catch (e) {
+      console.warn("[Windforge item catalog] sort perm cache restore failed", e);
+    }
+  }
+
+  async function persistSortPermCacheToDiskNow(epochForGen, catalogIdForWrite) {
+    if (epochForGen !== sortCacheBuildEpoch) return;
+    const catalogId = catalogIdForWrite || sortPermCacheCatalogId;
+    if (!catalogId || sortPermCache.size === 0 || typeof indexedDB === "undefined") return;
+    try {
+      const db = await getSortPermDb();
+      if (!db) return;
+      const entries = {};
+      sortPermCache.forEach(function (perm, key) {
+        if (!(perm instanceof Int32Array)) return;
+        entries[key] = perm.buffer.slice(
+          perm.byteOffset,
+          perm.byteOffset + perm.byteLength
+        );
+      });
+      await new Promise(function (resolve, reject) {
+        const tx = db.transaction(SORT_PERM_STORE, "readwrite");
+        const store = tx.objectStore(SORT_PERM_STORE);
+        const req = store.put(
+          { v: SORT_PERM_PERSIST_SCHEMA, entries: entries },
+          catalogId
+        );
+        req.onsuccess = function () {
+          resolve(undefined);
+        };
+        req.onerror = function () {
+          reject(req.error);
+        };
+      });
+    } catch (e) {
+      console.warn("[Windforge item catalog] sort perm cache persist failed", e);
+    }
+  }
+
+  function cancelSortPermPersistTimer() {
+    if (sortPermPersistTimer != null) {
+      clearTimeout(sortPermPersistTimer);
+      sortPermPersistTimer = null;
+    }
+  }
+
+  function scheduleSortPermCachePersist() {
+    if (typeof indexedDB === "undefined") return;
+    const capturedEpoch = sortCacheBuildEpoch;
+    const capturedCatalogId = sortPermCacheCatalogId;
+    cancelSortPermPersistTimer();
+    sortPermPersistTimer = setTimeout(function () {
+      sortPermPersistTimer = null;
+      void persistSortPermCacheToDiskNow(capturedEpoch, capturedCatalogId);
+    }, 1500);
+  }
+
+  function flushSortPermCachePersist() {
+    cancelSortPermPersistTimer();
+    const epoch = sortCacheBuildEpoch;
+    const catalogId = sortPermCacheCatalogId;
+    void persistSortPermCacheToDiskNow(epoch, catalogId);
+  }
+
+  /**
+   * Console: `await __windforgeNukeSortPermCache()` — clears in-memory sort permutations,
+   * deletes IndexedDB (`windforge-item-catalog`), invalidates price matrices, and rebuilds cache.
+   */
+  async function nukeSortPermCacheFromConsole() {
+    cancelBackgroundSortPermCacheBuild();
+    sortCacheBuildEpoch++;
+    sortPermCache.clear();
+    sortBind.invalidatePriceMatricesCache();
+    if (typeof indexedDB !== "undefined") {
+      const p = sortPermDbPromise;
+      sortPermDbPromise = null;
+      if (p) {
+        try {
+          const db = await p;
+          if (db) db.close();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      await new Promise(function (resolve) {
+        const req = indexedDB.deleteDatabase(SORT_PERM_IDB_NAME);
+        req.onsuccess = function () {
+          resolve(undefined);
+        };
+        req.onerror = function () {
+          resolve(undefined);
+        };
+        req.onblocked = function () {
+          resolve(undefined);
+        };
+      });
+    }
+    updateSortPrecalcDebugPanel();
+    const debugRoot = document.getElementById("sort-precalc-debug");
+    if (debugRoot) debugRoot.hidden = true;
+    render();
+    scheduleBackgroundSortPermCacheBuild();
+    console.log(
+      "[Windforge item catalog] Sort permutation cache cleared (memory + IndexedDB). Rebuilding…"
+    );
   }
 
   function scheduleIdleSortCacheBuild(epoch, jobs) {
@@ -3543,8 +3759,12 @@ function createSortCacheWorker() {
         });
         sortPermCache.set(key, perm);
         updateSortPrecalcDebugPanel();
+        scheduleSortPermCachePersist();
       }
       updateSortPrecalcDebugPanel();
+      if (ji >= jobs.length) {
+        flushSortPermCachePersist();
+      }
     }
 
     function runTimeout() {
@@ -3568,12 +3788,14 @@ function createSortCacheWorker() {
         });
         sortPermCache.set(key, perm);
         updateSortPrecalcDebugPanel();
+        scheduleSortPermCachePersist();
         break;
       }
       if (ji < jobs.length) {
         scheduleNext();
       } else {
         updateSortPrecalcDebugPanel();
+        flushSortPermCachePersist();
       }
     }
 
@@ -3603,13 +3825,14 @@ function createSortCacheWorker() {
     }
 
     const debugRoot = document.getElementById("sort-precalc-debug");
-    if (debugRoot) debugRoot.hidden = false;
     updateSortPrecalcDebugPanel();
 
     if (pendingJobs.length === 0) {
-      updateSortPrecalcDebugPanel();
+      if (debugRoot) debugRoot.hidden = true;
       return;
     }
+
+    if (debugRoot) debugRoot.hidden = false;
 
     if (typeof Worker !== "undefined") {
       try {
@@ -3653,6 +3876,7 @@ function createSortCacheWorker() {
             if (m.type === "job") {
               sortPermCache.set(m.key, new Int32Array(m.perm));
               updateSortPrecalcDebugPanel();
+              scheduleSortPermCachePersist();
               return;
             }
             if (m.type === "done") {
@@ -3661,6 +3885,7 @@ function createSortCacheWorker() {
                 terminateSortCacheWorkers();
                 updateSortPrecalcDebugPanel();
                 hideSortPrecalcWhenComplete();
+                flushSortPermCachePersist();
               }
               return;
             }
@@ -3792,6 +4017,7 @@ function createSortCacheWorker() {
       if (epoch !== sortCacheBuildEpoch) return;
       if (sortPermCache.has(permKey)) return;
       sortPermCache.set(permKey, perm);
+      scheduleSortPermCachePersist();
     }
     if (typeof requestIdleCallback === "function") {
       requestIdleCallback(run, { timeout: 4000 });
@@ -4930,6 +5156,8 @@ function createSortCacheWorker() {
     ) {
       blockTypes = blocksPayload.blockTypes;
     }
+    sortPermCacheCatalogId = computeCatalogSortPermFingerprint(data, blockTypes);
+    await restoreSortPermCacheFromDisk(sortPermCacheCatalogId);
     const persisted = readPersistedUI();
     if (persisted) {
       sortColumn = persisted.sortColumn;
@@ -4974,5 +5202,7 @@ function createSortCacheWorker() {
     scheduleBackgroundSortPermCacheBuild();
     scheduleBackgroundIconWarmup();
   }
+
+  globalThis.__windforgeNukeSortPermCache = nukeSortPermCacheFromConsole;
 
 load();
