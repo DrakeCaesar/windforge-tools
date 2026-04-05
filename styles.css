@@ -1204,6 +1204,12 @@ main {
   cursor: help;
 }
 
+/* Clothing rows: icon is draggable — avoid help(?) on the cell chrome and on the img when both classes apply. */
+.wiki-table td.col-icon:has(> img.item-icon[draggable="true"]),
+.wiki-table td.col-icon img.item-icon.item-icon--recipe[draggable="true"] {
+  cursor: grab;
+}
+
 .recipe-tooltip {
   position: fixed;
   z-index: 10000;
@@ -1529,12 +1535,24 @@ main {
   border: 1px dashed var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--panel) 40%, var(--bg));
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
-.clothing-loadout.clothing-loadout--drop-hover {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, var(--border));
-  outline-offset: 2px;
-  border-radius: 6px;
+body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.wiki-table td.col-icon img.item-icon[draggable="true"] {
+  cursor: grab;
+}
+
+.wiki-table td.col-icon img.item-icon[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .clothing-loadout__slots {
@@ -1656,10 +1674,6 @@ main {
   border-bottom: none;
   vertical-align: middle;
   overflow: hidden;
-}
-
-.clothing-loadout__stat-table.wiki-table tfoot .clothing-loadout__tf-sum--air {
-  color: color-mix(in srgb, #e8b86d 75%, var(--text));
 }
 
 /* Stable row height: empty cells were shorter than cells with numbers. */

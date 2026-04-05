@@ -177,6 +177,7 @@ function cellTextForClothingStat(item, colDef, decimals) {
  *   clothingObjectType: string,
  *   getItemByName: (name: string) => * | undefined,
  *   getAllItems: () => object[],
+ *   getFilteredClothingItems?: () => object[],
  *   displayName: (item: *) => string,
  *   renderSlotIcon: (wrap: HTMLElement, item: * | null | undefined) => void,
  *   storageKey: string,
@@ -208,6 +209,9 @@ export function mountClothingLoadout(opts) {
   let activeTab = 0;
 
   function clothingItems() {
+    if (typeof opts.getFilteredClothingItems === "function") {
+      return opts.getFilteredClothingItems();
+    }
     const all = getAllItems();
     const out = [];
     for (let i = 0; i < all.length; i++) {
@@ -501,24 +505,13 @@ export function mountClothingLoadout(opts) {
 
   root.appendChild(bodyLayout);
 
-  function isLeavingNode(container, related) {
-    return related == null || !container.contains(related);
-  }
-
-  /** One drop target for the whole planner: slot is chosen from the item's equipment type. */
-  root.addEventListener("dragover", function (e) {
+  /** Drop only on the slots strip; slot is chosen from the item's equipment folder. */
+  slotsDropZone.addEventListener("dragover", function (e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    root.classList.add("clothing-loadout--drop-hover");
   });
-  root.addEventListener("dragleave", function (e) {
-    if (isLeavingNode(root, e.relatedTarget)) {
-      root.classList.remove("clothing-loadout--drop-hover");
-    }
-  });
-  root.addEventListener("drop", function (e) {
+  slotsDropZone.addEventListener("drop", function (e) {
     e.preventDefault();
-    root.classList.remove("clothing-loadout--drop-hover");
     let name = e.dataTransfer.getData("application/x-windforge-item-name");
     if (!name) name = e.dataTransfer.getData("text/plain");
     name = (name || "").trim();
@@ -676,9 +669,6 @@ export function mountClothingLoadout(opts) {
       const td = document.createElement("td");
       td.className = "num clothing-loadout__td-num clothing-loadout__tf-sum";
       td.textContent = formatCatalogStatNumber(n, { hideZero: false, decimals: dec });
-      if (colDef.id === "clothAirDrain" && typeof n === "number" && n > 0) {
-        td.classList.add("clothing-loadout__tf-sum--air");
-      }
       trFoot.appendChild(td);
     }
     statTfoot.appendChild(trFoot);

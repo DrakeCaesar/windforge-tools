@@ -2731,6 +2731,11 @@ function createSortCacheWorker() {
       getAllItems: function () {
         return data.ItemList;
       },
+      getFilteredClothingItems: function () {
+        return getFilteredCatalogItemsUnsorted().filter(function (it) {
+          return it && it.objectType === CLOTHING_ITEM_OBJECT_TYPE;
+        });
+      },
       displayName: displayName,
       renderSlotIcon: renderClothingLoadoutSlotIcon,
       storageKey: "windforge-clothing-loadouts:" + String(catalogStorageKeySuffix || "default"),
@@ -4525,10 +4530,28 @@ function createSortCacheWorker() {
     thead.appendChild(tr);
   }
 
+  function wireClothingIconDrag(iconEl, item) {
+    if (!iconEl || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return;
+    iconEl.draggable = true;
+    iconEl.title = "Drag into the clothing loadout slots area";
+    if (iconEl.dataset.wfClothingDragBound === "1") return;
+    iconEl.dataset.wfClothingDragBound = "1";
+    iconEl.addEventListener("dragstart", function (e) {
+      e.dataTransfer.setData("application/x-windforge-item-name", item.name);
+      e.dataTransfer.setData("text/plain", item.name);
+      e.dataTransfer.effectAllowed = "copy";
+      document.body.classList.add("windforge-clothing-icon-dragging");
+    });
+    iconEl.addEventListener("dragend", function () {
+      document.body.classList.remove("windforge-clothing-icon-dragging");
+    });
+  }
+
   function appendIconToCell(td, item) {
     const reused = liveIconNodeByItemName.get(item.name);
     if (reused) {
       td.appendChild(reused);
+      wireClothingIconDrag(reused, item);
       return;
     }
 
@@ -4546,12 +4569,14 @@ function createSortCacheWorker() {
           td.appendChild(img);
     if (hadTintCache) {
       bindRecipeHover(img, item);
+      wireClothingIconDrag(img, item);
           return;
         }
     const iconNode = td.querySelector(".item-icon");
     if (iconNode) {
       bindRecipeHover(iconNode, item);
     }
+    wireClothingIconDrag(img, item);
   }
 
   function escapeHtml(s) {
@@ -4699,15 +4724,6 @@ function createSortCacheWorker() {
       tr.appendChild(td);
     }
     tr._item = item;
-    if (item.objectType === CLOTHING_ITEM_OBJECT_TYPE) {
-      tr.draggable = true;
-      tr.title = "Drag into a clothing loadout slot";
-      tr.addEventListener("dragstart", function (e) {
-        e.dataTransfer.setData("application/x-windforge-item-name", item.name);
-        e.dataTransfer.setData("text/plain", item.name);
-        e.dataTransfer.effectAllowed = "copy";
-      });
-    }
     return tr;
   }
 
@@ -5084,6 +5100,19 @@ function createSortCacheWorker() {
     }
   }
 
+  /** Search + object type + special + tier filters (no sort). Used by clothing loadout and {@link getFilteredSortedItemList} slow path. */
+  function getFilteredCatalogItemsUnsorted() {
+    const q = (document.getElementById("q").value || "").trim();
+    return data.ItemList.filter(function (it) {
+      return (
+        matchesQuery(it, q) &&
+        matchesObjectTypeFilter(it) &&
+        passesSpecialFilters(it) &&
+        passesTierVariantFilters(it)
+      );
+    });
+  }
+
   /** Filtered + sorted list for the current UI (query, filters, sort permutation or compareItems). */
   function getFilteredSortedItemList() {
     prepareSortColumnForView();
@@ -5117,14 +5146,7 @@ function createSortCacheWorker() {
         }
       }
     } else {
-      list = data.ItemList.filter(function (it) {
-        return (
-          matchesQuery(it, q) &&
-          matchesObjectTypeFilter(it) &&
-          passesSpecialFilters(it) &&
-          passesTierVariantFilters(it)
-        );
-      });
+      list = getFilteredCatalogItemsUnsorted();
       list.sort(compareItems);
       scheduleSortPermCacheFill(
         sortColumn,
@@ -5234,6 +5256,14 @@ function createSortCacheWorker() {
 
     schedulePersistUI();
     const t5 = profile ? performance.now() : 0;
+
+    if (
+      clothingLoadoutController &&
+      document.getElementById("clothing-loadout-details") &&
+      document.getElementById("clothing-loadout-details").open
+    ) {
+      clothingLoadoutController.refresh();
+    }
 
     if (profile) {
       const listMs = t1 - t0;
