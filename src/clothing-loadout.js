@@ -1210,7 +1210,7 @@ export function mountClothingLoadout(opts) {
       const n = sums[colDef.id];
       const td = document.createElement("td");
       td.className = "num clothing-loadout__td-num clothing-loadout__tf-sum";
-      td.textContent = formatCatalogStatNumber(n, { hideZero: false, decimals: dec });
+      td.textContent = formatCatalogStatNumber(n, { hideZero: true, decimals: dec });
       trFoot.appendChild(td);
     }
     statTfoot.appendChild(trFoot);
