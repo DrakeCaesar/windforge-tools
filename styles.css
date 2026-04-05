@@ -1,8 +1,6 @@
 :root {
   /* Virtual-scroll row height (spacers rely on this). Keep rows fixed-height. */
   --v-row-height: 59px;
-  /* Main content + table width cap (wider than typical prose for many columns). */
-  --catalog-max-width: 2048px;
   /* Header, loadout strip, main table: one gutter (horizontal + vertical). */
   --page-padding: 16px;
 
@@ -103,7 +101,6 @@ body {
   margin: 0 0 var(--page-padding);
   font: var(--text-13) var(--font-family-ui);
   color: var(--muted);
-  max-width: var(--catalog-max-width);
 }
 
 .meta code {
@@ -1413,7 +1410,6 @@ main {
 /* Clothing loadout planner (below header) */
 .clothing-loadout-details {
   flex-shrink: 0;
-  max-width: var(--catalog-max-width);
   margin: 0 auto;
   width: 100%;
   padding: 0;
