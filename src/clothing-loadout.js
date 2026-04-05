@@ -1,6 +1,6 @@
 /**
  * Clothing loadout planner: five body slots (head, torso, hands, legs, feet), stat totals,
- * five saved loadouts (localStorage), and per-slot optimization for one chosen stat.
+ * nine saved loadout presets (localStorage), and per-slot optimization for one chosen stat.
  */
 
 import { appendDiagonalHeaderLabel } from "./diagonal-table-header.js";
@@ -12,6 +12,9 @@ import {
 } from "./sort-permutation-core.js";
 
 /** @typedef {{ id: string, label: string, folders: string[] }} ClothingSlotDef */
+
+/** Preset tabs shown in a 3×3 grid under the stat table. */
+const LOADOUT_PRESET_COUNT = 9;
 
 /** @type {ClothingSlotDef[]} */
 export const CLOTHING_SLOTS = [
@@ -42,7 +45,7 @@ function isClothingStatColumnDef(def) {
 export const CLOTHING_STAT_DEFS = SP.COLUMNS.filter(isClothingStatColumnDef);
 
 /** Wider last stat col so default diagonal header (`left: 50%`) fits long labels (e.g. regen). */
-const LOADOUT_LAST_STAT_COL_EXTRA_PX = 14;
+const LOADOUT_LAST_STAT_COL_EXTRA_PX = 13;
 
 /** Feet-slot items never chosen by optimize (niche movement gear). */
 const ANTI_GRAVITY_BOOT_NAMES = new Set([
@@ -324,15 +327,13 @@ export function mountClothingLoadout(opts) {
   }
 
   /** @type {Record<string, string|null>[]} */
-  let loadouts = [emptyLoadout(), emptyLoadout(), emptyLoadout(), emptyLoadout(), emptyLoadout()];
+  let loadouts = [];
   /** @type {Record<string, boolean>[]} — per loadout tab; locked slots skip Optimize. */
-  let loadoutSlotLocks = [
-    emptySlotLocks(),
-    emptySlotLocks(),
-    emptySlotLocks(),
-    emptySlotLocks(),
-    emptySlotLocks(),
-  ];
+  let loadoutSlotLocks = [];
+  for (let _p = 0; _p < LOADOUT_PRESET_COUNT; _p++) {
+    loadouts.push(emptyLoadout());
+    loadoutSlotLocks.push(emptySlotLocks());
+  }
   let activeTab = 0;
   /** @type {string | null} — last used Optimize stat (UI + tie tooltip). */
   let activeOptimizeStatId = null;
@@ -350,12 +351,23 @@ export function mountClothingLoadout(opts) {
     return out;
   }
 
+  /** Full catalog clothing — never filtered by the main table UI (used for one-time layout widths). */
+  function allClothingItemsUnfiltered() {
+    const all = getAllItems();
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const it = all[i];
+      if (it && it.objectType === opts.clothingObjectType) out.push(it);
+    }
+    return out;
+  }
+
   /**
-   * Upper bound for the Sum row: sum over slots of each slot's maximum stat (widest totals vs single-cell text).
+   * Upper bound for the Sum row: sum over slots of each slot's maximum stat (for column width).
+   * @param {object[]} items
    * @returns {Record<string, number>}
    */
-  function theoreticalMaxSumByColIdForLoadout() {
-    const items = clothingItems();
+  function theoreticalMaxSumByColIdForItems(items) {
     /** @type {Record<string, number>} */
     const out = Object.create(null);
     for (let c = 0; c < CLOTHING_STAT_DEFS.length; c++) {
@@ -378,15 +390,29 @@ export function mountClothingLoadout(opts) {
     return out;
   }
 
+  /**
+   * Upper bound using the current filtered clothing list (Optimize / tie tooltip).
+   * @returns {Record<string, number>}
+   */
+  function theoreticalMaxSumByColIdForLoadout() {
+    return theoreticalMaxSumByColIdForItems(clothingItems());
+  }
+
+  /** @type {{ decimalsById: Record<string, number>, widthById: Record<string, number> } | null} */
+  let frozenPlannerStatMetrics = null;
+  let frozenPlannerSlotColWidthPx = 0;
+
   function loadFromStorage() {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return;
       const p = JSON.parse(raw);
       if (!p || typeof p !== "object") return;
-      if (typeof p.active === "number" && p.active >= 0 && p.active < 5) activeTab = p.active;
+      if (typeof p.active === "number" && p.active >= 0 && p.active < LOADOUT_PRESET_COUNT) {
+        activeTab = p.active;
+      }
       if (Array.isArray(p.loadouts) && p.loadouts.length >= 5) {
-        for (let L = 0; L < 5; L++) {
+        for (let L = 0; L < LOADOUT_PRESET_COUNT; L++) {
           const row = p.loadouts[L];
           if (!row || typeof row !== "object") continue;
           const base = emptyLoadout();
@@ -399,7 +425,7 @@ export function mountClothingLoadout(opts) {
         }
       }
       if (Array.isArray(p.slotLocks) && p.slotLocks.length >= 5) {
-        for (let L = 0; L < 5; L++) {
+        for (let L = 0; L < LOADOUT_PRESET_COUNT; L++) {
           const row = p.slotLocks[L];
           const base = emptySlotLocks();
           if (row && typeof row === "object") {
@@ -828,12 +854,7 @@ export function mountClothingLoadout(opts) {
   const loadoutsPanel = document.createElement("div");
   loadoutsPanel.className = "clothing-loadout__loadouts-panel";
   loadoutsPanel.setAttribute("role", "tablist");
-  loadoutsPanel.setAttribute("aria-label", "Loadouts");
-
-  const loadoutsTitle = document.createElement("div");
-  loadoutsTitle.className = "clothing-loadout__panel-heading";
-  loadoutsTitle.textContent = "Loadouts";
-  loadoutsPanel.appendChild(loadoutsTitle);
+  loadoutsPanel.setAttribute("aria-label", "Saved loadout presets");
   loadoutsCol.appendChild(loadoutsPanel);
 
   function createLoadoutStatColgroup() {
@@ -916,10 +937,14 @@ export function mountClothingLoadout(opts) {
 
   tableCol.appendChild(statsScroll);
 
+  const tableStack = document.createElement("div");
+  tableStack.className = "clothing-loadout__table-stack clothing-loadout__table-merge";
+  tableStack.appendChild(tableCol);
+  tableStack.appendChild(loadoutsCol);
+
   bodyLayout.appendChild(slotsCol);
   bodyLayout.appendChild(optimizeCol);
-  bodyLayout.appendChild(tableCol);
-  bodyLayout.appendChild(loadoutsCol);
+  bodyLayout.appendChild(tableStack);
 
   root.appendChild(bodyLayout);
 
@@ -943,6 +968,38 @@ export function mountClothingLoadout(opts) {
 
   /** @type {HTMLButtonElement[]} */
   const tabBtns = [];
+  /** @type {HTMLElement[][]} — per preset tab, one `.recipe-tooltip__ing-icon` wrap per body slot. */
+  const loadoutTabIconWraps = [];
+
+  for (let t = 0; t < LOADOUT_PRESET_COUNT; t++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "object-type-dropdown__option clothing-loadout__loadout-tab";
+    b.setAttribute("role", "tab");
+    const n = String(t + 1);
+    b.setAttribute("aria-label", "Loadout " + n);
+    b.title = "Loadout " + n;
+    b.setAttribute("aria-selected", "false");
+    b.setAttribute("aria-pressed", "false");
+    const iconsRow = document.createElement("span");
+    iconsRow.className = "clothing-loadout__loadout-tab-icons";
+    iconsRow.setAttribute("aria-hidden", "true");
+    const wraps = [];
+    for (let s = 0; s < SLOT_IDS.length; s++) {
+      const wrap = document.createElement("div");
+      wrap.className = "recipe-tooltip__ing-icon";
+      wraps.push(wrap);
+      iconsRow.appendChild(wrap);
+    }
+    loadoutTabIconWraps.push(wraps);
+    b.appendChild(iconsRow);
+    const idx = t;
+    b.addEventListener("click", function () {
+      setActiveTab(idx);
+    });
+    tabBtns.push(b);
+    loadoutsPanel.appendChild(b);
+  }
 
   function currentLoadout() {
     return loadouts[activeTab];
@@ -956,34 +1013,48 @@ export function mountClothingLoadout(opts) {
   }
 
   /**
-   * Min width for `.clothing-loadout__slot-name` so the longest clothing display name (and stale
-   * `name + " (missing)"`) fits on one line at the slot name font size.
+   * Slot-name min width + stat column widths from the full clothing list, once (ignores catalog filters).
    */
-  function updatePlannerSlotNameMinWidth() {
+  function computePlannerLayoutOnce() {
     const sample = slotNameEls[SLOT_IDS[0]];
-    if (!sample) return;
+    if (!sample || !statTableBody) return;
+    const items = allClothingItemsUnfiltered();
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.font = getComputedStyle(sample).font || "12px system-ui";
     let maxPx = 0;
-    const cloth = clothingItems();
-    for (let i = 0; i < cloth.length; i++) {
-      const t = displayName(cloth[i]) || "";
+    for (let i = 0; i < items.length; i++) {
+      const t = displayName(items[i]) || "";
       if (!t) continue;
       const w = ctx.measureText(t).width;
       if (w > maxPx) maxPx = w;
     }
-    const L = currentLoadout();
-    for (let s = 0; s < SLOT_IDS.length; s++) {
-      const nm = L[SLOT_IDS[s]];
-      if (!nm || getItemByName(nm)) continue;
-      const t = nm + " (missing)";
-      const w = ctx.measureText(t).width;
-      if (w > maxPx) maxPx = w;
+    for (let L = 0; L < LOADOUT_PRESET_COUNT; L++) {
+      const preset = loadouts[L];
+      for (let s = 0; s < SLOT_IDS.length; s++) {
+        const nm = preset[SLOT_IDS[s]];
+        if (!nm || getItemByName(nm)) continue;
+        const t = nm + " (missing)";
+        const w = ctx.measureText(t).width;
+        if (w > maxPx) maxPx = w;
+      }
     }
     const padded = Math.max(120, Math.ceil(maxPx) + 12);
     root.style.setProperty("--clothing-loadout-slot-name-min-px", padded + "px");
+
+    const theoreticalMax = theoreticalMaxSumByColIdForItems(items);
+    frozenPlannerStatMetrics = measureClothingLoadoutColumnMetrics(
+      items,
+      CLOTHING_STAT_DEFS,
+      getClothingStatValueForColumnDef,
+      {
+        measureFontFromEl: statTableBody,
+        footerSumByColId: null,
+        theoreticalMaxSumByColId: theoreticalMax,
+      }
+    );
+    frozenPlannerSlotColWidthPx = measureSlotColumnWidthPx(statTableBody);
   }
 
   function refreshSlotVisual(slotId) {
@@ -1008,31 +1079,46 @@ export function mountClothingLoadout(opts) {
     }
   }
 
+  function refreshLoadoutTabPreviews() {
+    for (let t = 0; t < LOADOUT_PRESET_COUNT; t++) {
+      const preset = loadouts[t];
+      const wraps = loadoutTabIconWraps[t];
+      if (!wraps) continue;
+      for (let s = 0; s < SLOT_IDS.length; s++) {
+        const sid = SLOT_IDS[s];
+        const nm = preset[sid];
+        const item = nm ? getItemByName(nm) : null;
+        renderSlotIcon(wraps[s], item || null);
+      }
+    }
+  }
+
   function refreshSlotsAndTotals() {
     refreshAllLockButtonVisuals();
     for (let s = 0; s < SLOT_IDS.length; s++) {
       refreshSlotVisual(SLOT_IDS[s]);
     }
-    updatePlannerSlotNameMinWidth();
 
     const L = currentLoadout();
     const sums = sumClothingLoadoutStats(L, getItemByName);
-    const items = clothingItems();
-    const measureEl = statTableBody;
-    const metrics = measureClothingLoadoutColumnMetrics(
-      items,
-      CLOTHING_STAT_DEFS,
-      getClothingStatValueForColumnDef,
-      {
-        measureFontFromEl: measureEl,
-        footerSumByColId: sums,
-        theoreticalMaxSumByColId: theoreticalMaxSumByColIdForLoadout(),
-      }
-    );
+    const metrics =
+      frozenPlannerStatMetrics ||
+      measureClothingLoadoutColumnMetrics(
+        allClothingItemsUnfiltered(),
+        CLOTHING_STAT_DEFS,
+        getClothingStatValueForColumnDef,
+        {
+          measureFontFromEl: statTableBody,
+          footerSumByColId: null,
+          theoreticalMaxSumByColId: theoreticalMaxSumByColIdForItems(allClothingItemsUnfiltered()),
+        }
+      );
     const decimalsById = metrics.decimalsById;
     const widthById = metrics.widthById;
 
-    const slotW = measureSlotColumnWidthPx(measureEl) + "px";
+    const slotW =
+      (frozenPlannerSlotColWidthPx ||
+        measureSlotColumnWidthPx(statTableBody)) + "px";
     headCols.colSlot.style.width = slotW;
     bodyCols.colSlot.style.width = slotW;
     const lastStatIdx = CLOTHING_STAT_DEFS.length - 1;
@@ -1091,6 +1177,7 @@ export function mountClothingLoadout(opts) {
       trFoot.appendChild(td);
     }
     statTfoot.appendChild(trFoot);
+    refreshLoadoutTabPreviews();
   }
 
   function setActiveTab(idx) {
@@ -1105,22 +1192,6 @@ export function mountClothingLoadout(opts) {
     refreshSlotsAndTotals();
   }
 
-  for (let t = 0; t < 5; t++) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "object-type-dropdown__option clothing-loadout__loadout-tab";
-    b.setAttribute("role", "tab");
-    b.textContent = "Loadout " + String(t + 1);
-    b.setAttribute("aria-selected", "false");
-    b.setAttribute("aria-pressed", "false");
-    const idx = t;
-    b.addEventListener("click", function () {
-      setActiveTab(idx);
-    });
-    tabBtns.push(b);
-    loadoutsPanel.appendChild(b);
-  }
-
   for (let s = 0; s < SLOT_IDS.length; s++) {
     const sid = SLOT_IDS[s];
     slotClearBtns[sid].addEventListener("click", function () {
@@ -1129,6 +1200,7 @@ export function mountClothingLoadout(opts) {
   }
 
   loadFromStorage();
+  computePlannerLayoutOnce();
   setActiveTab(activeTab);
   updateOptimizeButtonHighlight();
 

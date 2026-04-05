@@ -33,6 +33,29 @@
   --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
   --table-scrollbar-gutter-fixed: 10px;
   --control-h: 32px;
+
+  --font-family-ui: system-ui, Segoe UI, Roboto, Ubuntu, sans-serif;
+
+  /*
+   * Typography scale: each --text-* is "weight size/line-height" (always paired).
+   * Use: `font: var(--text-13) var(--font-family-ui);`
+   * Avoid setting font-size or line-height alone for UI text — pick a step here.
+   */
+  --text-body: 400 16px/24px;
+  --text-22: 650 22px/28px;
+  --text-22-icon: 400 22px/1;
+  --text-14: 400 14px/20px;
+  --text-14-semibold: 600 14px/20px;
+  --text-14-input: 400 14px/1;
+  --text-13: 400 13px/18px;
+  --text-13-semibold: 600 13px/18px;
+  --text-13-medium: 500 13px/18px;
+  --text-13-row: 400 13px/16px;
+  --text-12: 400 12px/18px;
+  --text-12-head: 650 12px/18px;
+  --text-11: 400 11px/15px;
+  --text-11-strong: 650 11px/15px;
+  --text-10: 400 10px/14px;
 }
 
 * {
@@ -50,15 +73,9 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  font-family:
-    system-ui,
-    Segoe UI,
-    Roboto,
-    Ubuntu,
-    sans-serif;
+  font: var(--text-body) var(--font-family-ui);
   background: var(--bg);
   color: var(--text);
-  line-height: 1.45;
 }
 
 .top {
@@ -79,19 +96,18 @@ body {
 
 .top__title-block h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
+  font: var(--text-22) var(--font-family-ui);
 }
 
 .meta {
   margin: 0 0 var(--page-padding);
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   color: var(--muted);
   max-width: var(--catalog-max-width);
 }
 
 .meta code {
-  font-size: 12px;
+  font: var(--text-12) var(--font-family-ui);
   color: var(--meta-code);
 }
 
@@ -107,7 +123,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   color: var(--muted);
   align-items: flex-start;
   text-align: left;
@@ -118,7 +134,7 @@ body {
   align-items: center;
   gap: 7px;
   min-height: 16px;
-  line-height: 16px;
+  font: var(--text-13-row) var(--font-family-ui);
   cursor: pointer;
   user-select: none;
   color: var(--text);
@@ -170,7 +186,7 @@ body {
   justify-content: flex-start;
   width: 100%;
   min-height: 16px;
-  line-height: 16px;
+  font: var(--text-13-row) var(--font-family-ui);
 }
 
 .controls input[type="search"],
@@ -182,8 +198,7 @@ body {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
-  font-size: 14px;
-  line-height: 1;
+  font: var(--text-14-input) var(--font-family-ui);
 }
 
 .controls input[type="search"] {
@@ -202,7 +217,7 @@ body {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
-  font-size: 14px;
+  font: var(--text-14-input) var(--font-family-ui);
   overflow: hidden;
 }
 
@@ -216,8 +231,7 @@ body {
   border-radius: 0;
   background: transparent;
   color: var(--text);
-  font-size: 14px;
-  line-height: 1;
+  font: var(--text-14-input) var(--font-family-ui);
   appearance: textfield;
   -moz-appearance: textfield;
 }
@@ -334,8 +348,7 @@ body {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
-  font-size: 14px;
-  line-height: 1;
+  font: var(--text-14-input) var(--font-family-ui);
   text-align: left;
   cursor: pointer;
 }
@@ -387,8 +400,7 @@ body {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 10px 5px;
-  font-size: 13px;
-  font-weight: 600;
+  font: var(--text-13-semibold) var(--font-family-ui);
   color: var(--muted);
   text-align: left;
   user-select: none;
@@ -404,9 +416,7 @@ body {
   border-radius: 0;
   background: transparent;
   color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.25;
+  font: var(--text-14) var(--font-family-ui);
   text-align: left;
   cursor: pointer;
 }
@@ -468,8 +478,7 @@ body {
 
 .count {
   display: block;
-  font-size: 13px;
-  line-height: 1.3;
+  font: var(--text-13) var(--font-family-ui);
   color: var(--muted);
   text-align: left;
   font-variant-numeric: tabular-nums;
@@ -622,7 +631,7 @@ main {
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 14px;
+  font: var(--text-14) var(--font-family-ui);
   /* Internal grid: each cell draws left + bottom only (no doubled lines). Outer frame is `.table-wrap`. */
   border: none;
 }
@@ -1064,7 +1073,7 @@ main {
   overflow: hidden;
   overflow-wrap: break-word;
   word-break: break-word;
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   color: var(--td-desc);
 }
 
@@ -1074,7 +1083,7 @@ main {
 
 /* Line breaks prefer camelCase boundaries (U+200B inserted in app.js). */
 .wiki-table td.col-name code {
-  font-size: 12px;
+  font: var(--text-12) var(--font-family-ui);
   color: var(--name-code);
   white-space: normal;
   overflow-wrap: break-word;
@@ -1098,8 +1107,7 @@ main {
 /* Icons are exported upright by extract_itemlist.py (no CSS flip needed). */
 
 .json-open-btn {
-  font: inherit;
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   color: var(--accent);
   background: transparent;
   border: none;
@@ -1140,8 +1148,7 @@ main {
   gap: 12px;
   padding: 8px 10px 8px 14px;
   border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 600;
+  font: var(--text-14-semibold) var(--font-family-ui);
 }
 
 .json-dialog-close {
@@ -1153,8 +1160,7 @@ main {
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 22px;
-  line-height: 1;
+  font: var(--text-22-icon) var(--font-family-ui);
   cursor: pointer;
 }
 
@@ -1168,8 +1174,7 @@ main {
   padding: 12px 16px;
   max-height: min(72vh, calc(100vh - 160px));
   overflow: auto;
-  font-size: 12px;
-  line-height: 1.45;
+  font: var(--text-12) var(--font-family-ui);
   background: var(--deep-surface);
   border-radius: 0 0 7px 7px;
   border: none;
@@ -1224,8 +1229,7 @@ main {
   border-radius: 8px;
   box-shadow: 0 8px 28px var(--shadow-pop);
   pointer-events: auto;
-  font-size: 13px;
-  line-height: 1.35;
+  font: var(--text-13) var(--font-family-ui);
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
@@ -1264,8 +1268,7 @@ main {
 }
 
 .recipe-tooltip__head {
-  font-weight: 650;
-  font-size: 12px;
+  font: var(--text-12-head) var(--font-family-ui);
   color: var(--muted);
   margin-bottom: 6px;
   padding-bottom: 4px;
@@ -1273,13 +1276,13 @@ main {
 }
 
 .recipe-tooltip__title {
-  font-weight: 600;
+  font: var(--text-13-semibold) var(--font-family-ui);
   margin: 4px 0 4px;
   color: var(--text);
 }
 
 .recipe-tooltip__out {
-  font-weight: 500;
+  font: var(--text-13-medium) var(--font-family-ui);
   color: var(--muted);
 }
 
@@ -1311,7 +1314,7 @@ main {
   justify-content: center;
   background: var(--recipe-ing-bg);
   border-radius: 4px;
-  font-size: 10px;
+  font: var(--text-10) var(--font-family-ui);
   color: var(--muted);
 }
 
@@ -1323,11 +1326,17 @@ main {
   cursor: help;
 }
 
-/* Match table icons: flip + tint via .item-icon; size down for the tooltip row */
-.recipe-tooltip__ing-icon img.item-icon {
+/* Match table icons: flip + tint via .item-icon; size down for the tooltip row (img + empty placeholders). */
+.recipe-tooltip__ing-icon > .item-icon {
   display: block;
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
+  box-sizing: border-box;
+  flex-shrink: 0;
   object-fit: contain;
 }
 
@@ -1367,8 +1376,7 @@ main {
   max-width: min(240px, calc(100vw - 24px));
   padding: 8px 10px;
   border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.35;
+  font: var(--text-11) var(--font-family-ui);
   color: var(--text, #e8e6e3);
   background: rgba(20, 22, 28, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1415,8 +1423,7 @@ main {
 
 .clothing-loadout-details__summary {
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
+  font: var(--text-14-semibold) var(--font-family-ui);
   color: var(--text);
   padding: 4px var(--page-padding) 4px;
   list-style: none;
@@ -1458,14 +1465,12 @@ main {
 
 /* In-panel title: same tone as `.object-type-dropdown__group-label`. */
 .clothing-loadout__panel-heading {
-  padding: 6px 10px 5px;
+  padding: 4px 10px;
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font: var(--text-13-semibold) var(--font-family-ui);
   color: var(--muted);
   user-select: none;
   pointer-events: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
 
 .clothing-loadout__optimize-panel {
@@ -1482,7 +1487,7 @@ main {
 }
 
 .clothing-loadout__optimize-panel .object-type-dropdown__option {
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   white-space: nowrap;
 }
 
@@ -1500,6 +1505,44 @@ main {
   align-self: flex-start;
 }
 
+.clothing-loadout__table-stack {
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
+  gap: var(--page-padding);
+  flex: 0 1 auto;
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Single frame around stat table + preset grid (no inner “Loadouts” heading). */
+.clothing-loadout__table-merge {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 75%, var(--panel));
+}
+
+.clothing-loadout__table-merge .clothing-loadout__stat-table-wrap.table-wrap {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.clothing-loadout__table-merge .clothing-loadout__loadouts-panel {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--border);
+}
+
+.clothing-loadout__table-stack .clothing-loadout__loadouts-col {
+  width: 100%;
+  min-width: 0;
+}
+
 .clothing-loadout__loadouts-col {
   flex: 0 0 auto;
   align-self: flex-start;
@@ -1512,9 +1555,9 @@ main {
 }
 
 .clothing-loadout__loadouts-panel {
-  display: flex;
-  flex-direction: column;
-  width: fit-content;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
   max-width: 100%;
   padding: 0;
   overflow: hidden;
@@ -1525,12 +1568,48 @@ main {
 }
 
 .clothing-loadout__loadouts-panel .object-type-dropdown__option {
-  font-size: 13px;
+  font: var(--text-13) var(--font-family-ui);
   white-space: nowrap;
 }
 
+.clothing-loadout__loadouts-panel .clothing-loadout__loadout-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: auto;
+  padding: 4px 0px;
+  border-radius: 0;
+  border: 0;
+}
+
+.clothing-loadout__loadout-tab-icons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* Same 32×32 cells as `.recipe-tooltip__ing-icon` in tooltips (inherits global rules). */
+.clothing-loadout__loadouts-panel .clothing-loadout__loadout-tab .recipe-tooltip__ing-icon {
+  flex-shrink: 0;
+}
+
+/* Rows after the first row of tabs (3 cols). */
+.clothing-loadout__loadouts-panel .clothing-loadout__loadout-tab:nth-child(n + 4) {
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+/* Vertical dividers: first two columns (3×3 grid; tabs are children 1–9). */
+.clothing-loadout__loadouts-panel .clothing-loadout__loadout-tab:nth-child(3n + 1),
+.clothing-loadout__loadouts-panel .clothing-loadout__loadout-tab:nth-child(3n + 2) {
+  border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
 .clothing-loadout__slots-dropzone {
-  padding: 10px;
+  padding: 8px;
   border: 1px dashed var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--panel) 40%, var(--bg));
@@ -1595,7 +1674,7 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
   /* Inherit `.wiki-table` width: auto; column widths come from <colgroup> (same idea as main table). */
   width: auto;
   min-width: 0;
-  font-size: 12px;
+  font: var(--text-12) var(--font-family-ui);
 }
 
 .clothing-loadout__stat-table.wiki-table thead th {
@@ -1618,7 +1697,7 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 }
 
 .clothing-loadout__stat-table.wiki-table thead th.num-diagonal {
-  height: 55px;
+  height: 54px;
 }
 .clothing-loadout__stat-table.wiki-table thead th.num-diagonal .num-diagonal-label {
   transform-origin: bottom left;
@@ -1676,7 +1755,6 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 .clothing-loadout__stat-table.wiki-table tbody th.clothing-loadout__td-slot,
 .clothing-loadout__stat-table.wiki-table tfoot td,
 .clothing-loadout__stat-table.wiki-table tfoot th.clothing-loadout__td-slot {
-  min-height: 30px;
   box-sizing: border-box;
   vertical-align: middle;
 }
@@ -1684,7 +1762,7 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 .clothing-loadout__slot {
   border: 1px dashed var(--border);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 8px 8px;
   background: color-mix(in srgb, var(--panel) 70%, var(--bg));
   display: flex;
   flex-direction: row;
@@ -1699,8 +1777,7 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 
 .clothing-loadout__slot-label {
   flex: 0 0 3.25rem;
-  font-size: 11px;
-  font-weight: 650;
+  font: var(--text-11-strong) var(--font-family-ui);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -1731,8 +1808,7 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 .clothing-loadout__slot-name {
   flex: 1 1 auto;
   min-width: var(--clothing-loadout-slot-name-min-px, 120px);
-  font-size: 12px;
-  line-height: 1.3;
+  font: var(--text-12) var(--font-family-ui);
   color: var(--text);
   text-align: left;
   word-break: break-word;
