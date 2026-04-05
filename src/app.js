@@ -3097,10 +3097,59 @@ function createSortCacheWorker() {
     labelEl.textContent = opt ? opt.textContent : "All object types";
   }
 
-  function sizeDropdownToLongestOption(selectId, rootId, btnId) {
-    const sel = document.getElementById(selectId);
-    const root = document.getElementById(rootId);
-    const btn = document.getElementById(btnId);
+  /** Shared by object-type and sort-mode dropdowns (same `.object-type-dropdown__btn` styles). */
+  function applyDropdownTriggerWidth(root, btn, maxText) {
+    const cs = getComputedStyle(btn);
+    const padLeft = parseFloat(cs.paddingLeft) || 0;
+    const padRight = parseFloat(cs.paddingRight) || 0;
+    const borderL = parseFloat(cs.borderLeftWidth) || 0;
+    const borderR = parseFloat(cs.borderRightWidth) || 0;
+    const width = Math.ceil(maxText + padLeft + padRight + borderL + borderR);
+    root.style.width = width + "px";
+    root.style.minWidth = "";
+    root.style.maxWidth = "";
+  }
+
+  /** Object-type select uses optgroups; size trigger to widest label/option (no fixed min/max lock). */
+  function sizeObjectTypeDropdownToContent() {
+    const sel = document.getElementById("filter-object-type");
+    const root = document.getElementById("object-type-dropdown-root");
+    const btn = document.getElementById("filter-object-type-btn");
+    if (!sel || !root || !btn) return;
+    const cs = getComputedStyle(btn);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const optionFont = cs.font;
+    const groupFont = "600 13px " + cs.fontFamily;
+    let maxText = 0;
+    function consider(t, font) {
+      if (t == null || t === "") return;
+      ctx.font = font;
+      const w = ctx.measureText(String(t)).width;
+      if (w > maxText) maxText = w;
+    }
+    for (let i = 0; i < sel.children.length; i++) {
+      const node = sel.children[i];
+      if (node.nodeName === "OPTION") {
+        consider(node.textContent || node.value || "", optionFont);
+      } else if (node.nodeName === "OPTGROUP") {
+        consider(node.label || "", groupFont);
+        for (let j = 0; j < node.children.length; j++) {
+          const o = node.children[j];
+          if (o.nodeName === "OPTION") {
+            consider(o.textContent || o.value || "", optionFont);
+          }
+        }
+      }
+    }
+    applyDropdownTriggerWidth(root, btn, maxText);
+  }
+
+  function sizeSecondarySortDropdownToContent() {
+    const sel = document.getElementById("secondary-sort");
+    const root = document.getElementById("secondary-sort-dropdown-root");
+    const btn = document.getElementById("secondary-sort-btn");
     if (!sel || !root || !btn) return;
     const cs = getComputedStyle(btn);
     const canvas = document.createElement("canvas");
@@ -3113,16 +3162,7 @@ function createSortCacheWorker() {
       const w = ctx.measureText(t).width;
       if (w > maxText) maxText = w;
     }
-    // text + btn horizontal paddings + chevron room
-    const padLeft = parseFloat(cs.paddingLeft) || 0;
-    const padRight = parseFloat(cs.paddingRight) || 0;
-    const borderL = parseFloat(cs.borderLeftWidth) || 0;
-    const borderR = parseFloat(cs.borderRightWidth) || 0;
-    const chevron = 20;
-    const width = Math.ceil(maxText + padLeft + padRight + borderL + borderR + chevron);
-    root.style.width = width + "px";
-    root.style.minWidth = width + "px";
-    root.style.maxWidth = width + "px";
+    applyDropdownTriggerWidth(root, btn, maxText);
   }
 
   function syncObjectTypeDropdownPanel() {
@@ -3132,13 +3172,11 @@ function createSortCacheWorker() {
     panel.innerHTML = "";
     const current = sel.value;
 
-    function addOptionButton(value, text, opts) {
-      const indented = opts && opts.indented;
+    function addOptionButton(value, text) {
       const b = document.createElement("button");
       b.type = "button";
       b.setAttribute("role", "option");
       b.className = "object-type-dropdown__option";
-      if (indented) b.classList.add("object-type-dropdown__option--indented");
       b.setAttribute("data-value", value);
       b.textContent = text;
       const selected = value === current;
@@ -3158,24 +3196,20 @@ function createSortCacheWorker() {
     for (let i = 0; i < sel.children.length; i++) {
       const node = sel.children[i];
       if (node.nodeName === "OPTION") {
-        addOptionButton(node.value, node.textContent || node.value, { indented: false });
+        addOptionButton(node.value, node.textContent || node.value);
       } else if (node.nodeName === "OPTGROUP") {
         addGroupLabel(node.label || "");
         for (let j = 0; j < node.children.length; j++) {
           const o = node.children[j];
           if (o.nodeName === "OPTION") {
-            addOptionButton(o.value, o.textContent || o.value, { indented: true });
+            addOptionButton(o.value, o.textContent || o.value);
           }
         }
       }
     }
 
     updateObjectTypeDropdownLabel();
-    sizeDropdownToLongestOption(
-      "filter-object-type",
-      "object-type-dropdown-root",
-      "filter-object-type-btn"
-    );
+    sizeObjectTypeDropdownToContent();
   }
 
   function closeObjectTypePanel() {
@@ -3351,11 +3385,7 @@ function createSortCacheWorker() {
     }
 
     updateSecondarySortDropdownLabel();
-    sizeDropdownToLongestOption(
-      "secondary-sort",
-      "secondary-sort-dropdown-root",
-      "secondary-sort-btn"
-    );
+    sizeSecondarySortDropdownToContent();
   }
 
   function closeSecondarySortPanel() {

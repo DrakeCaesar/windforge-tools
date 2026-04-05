@@ -44,6 +44,23 @@ export const CLOTHING_STAT_DEFS = SP.COLUMNS.filter(isClothingStatColumnDef);
 /** Wider last stat col so default diagonal header (`left: 50%`) fits long labels (e.g. regen). */
 const LOADOUT_LAST_STAT_COL_EXTRA_PX = 20;
 
+/** Feet-slot items never chosen by optimize (niche movement gear). */
+const ANTI_GRAVITY_BOOT_NAMES = new Set([
+  "AntiGravityBoots",
+  "QualityAntiGravityBoots",
+  "MasterCraftAntiGravityBoots",
+]);
+
+/**
+ * @param {*} item
+ * @returns {boolean}
+ */
+function shouldExcludeItemFromOptimize(item) {
+  const n = item && item.name;
+  if (typeof n !== "string") return false;
+  return ANTI_GRAVITY_BOOT_NAMES.has(n);
+}
+
 /**
  * @param {*} item
  * @returns {string|null}
@@ -66,7 +83,7 @@ export function getClothingSlotId(item) {
  * @param {number} b
  */
 function betterForOptimize(colDef, a, b) {
-  if (colDef.id === "clothAirDrain") return a < b;
+  if (colDef.id === "clothAirDrain" || colDef.id === "clothTraitWeight") return a < b;
   return a > b;
 }
 
@@ -93,6 +110,7 @@ export function computeOptimalLoadoutByStat(clothingItems, statColumnId) {
     for (let i = 0; i < clothingItems.length; i++) {
       const it = clothingItems[i];
       if (!it || getClothingSlotId(it) !== slotId) continue;
+      if (shouldExcludeItemFromOptimize(it)) continue;
       const v = getClothingStatValueForColumnDef(it, colDef);
       if (v == null) continue;
       if (
@@ -334,45 +352,67 @@ export function mountClothingLoadout(opts) {
   slotsDropZone.appendChild(slotsStack);
   slotsCol.appendChild(slotsDropZone);
 
-  const mainCol = document.createElement("div");
-  mainCol.className = "clothing-loadout__main-col";
-
-  const toolbar = document.createElement("div");
-  toolbar.className = "clothing-loadout__toolbar";
-
-  const tabs = document.createElement("div");
-  tabs.className = "clothing-loadout__tabs";
-  toolbar.appendChild(tabs);
+  const optimizeCol = document.createElement("div");
+  optimizeCol.className = "clothing-loadout__optimize-col";
 
   const optRow = document.createElement("div");
   optRow.className = "clothing-loadout__optimize";
 
-  const optLabel = document.createElement("label");
-  optLabel.className = "clothing-loadout__optimize-label";
-  const optSpan = document.createElement("span");
-  optSpan.textContent = "Optimize";
-  const optSelect = document.createElement("select");
-  optSelect.className = "clothing-loadout__optimize-select";
-  optSelect.setAttribute("aria-label", "Stat to optimize");
+  const optList = document.createElement("div");
+  optList.className = "clothing-loadout__optimize-panel";
+  optList.setAttribute("role", "group");
+  optList.setAttribute("aria-label", "Optimize: pick best item per slot for one stat");
+
+  const optTitle = document.createElement("div");
+  optTitle.className = "clothing-loadout__panel-heading";
+  optTitle.textContent = "Optimize";
+  optList.appendChild(optTitle);
+
   for (let i = 0; i < CLOTHING_STAT_DEFS.length; i++) {
     const d = CLOTHING_STAT_DEFS[i];
-    const o = document.createElement("option");
-    o.value = d.id;
-    o.textContent = d.label + (d.id === "clothAirDrain" ? " (min)" : " (max)");
-    optSelect.appendChild(o);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "object-type-dropdown__option clothing-loadout__optimize-option";
+    b.textContent = d.label;
+    b.title =
+      "Equip the best " +
+      d.label.toLowerCase() +
+      " in each body slot independently (" +
+      (d.id === "clothAirDrain" || d.id === "clothTraitWeight" ? "lowest" : "highest") +
+      " wins; anti-gravity boots excluded).";
+    const statId = d.id;
+    b.addEventListener("click", function () {
+      const optimal = computeOptimalLoadoutByStat(clothingItems(), statId);
+      const L = currentLoadout();
+      for (let s = 0; s < SLOT_IDS.length; s++) {
+        const sid = SLOT_IDS[s];
+        L[sid] = optimal[sid];
+      }
+      saveToStorage();
+      refreshSlotsAndTotals();
+    });
+    optList.appendChild(b);
   }
-  optLabel.appendChild(optSpan);
-  optLabel.appendChild(optSelect);
 
-  const optBtn = document.createElement("button");
-  optBtn.type = "button";
-  optBtn.className = "clothing-loadout__optimize-btn";
-  optBtn.textContent = "Apply best per slot";
-  optBtn.title =
-    "Pick the best item independently in each slot for the selected stat (maximum, or minimum for air drain).";
+  optRow.appendChild(optList);
+  optimizeCol.appendChild(optRow);
 
-  optRow.appendChild(optLabel);
-  optRow.appendChild(optBtn);
+  const tableCol = document.createElement("div");
+  tableCol.className = "clothing-loadout__table-col";
+
+  const loadoutsCol = document.createElement("div");
+  loadoutsCol.className = "clothing-loadout__loadouts-col";
+
+  const loadoutsPanel = document.createElement("div");
+  loadoutsPanel.className = "clothing-loadout__loadouts-panel";
+  loadoutsPanel.setAttribute("role", "tablist");
+  loadoutsPanel.setAttribute("aria-label", "Loadouts");
+
+  const loadoutsTitle = document.createElement("div");
+  loadoutsTitle.className = "clothing-loadout__panel-heading";
+  loadoutsTitle.textContent = "Loadouts";
+  loadoutsPanel.appendChild(loadoutsTitle);
+  loadoutsCol.appendChild(loadoutsPanel);
 
   function createLoadoutStatColgroup() {
     const colgroup = document.createElement("colgroup");
@@ -419,7 +459,9 @@ export function mountClothingLoadout(opts) {
     const th = document.createElement("th");
     th.className = "num num-diagonal hdr-diagonal-stat clothing-loadout__th-stat-col";
     th.setAttribute("scope", "col");
-    if (colDef.id === "clothAirDrain") th.title = colDef.label + " (lower is better)";
+    if (colDef.id === "clothAirDrain" || colDef.id === "clothTraitWeight") {
+      th.title = colDef.label + " (lower is better)";
+    }
     appendDiagonalHeaderLabel(th, colDef.label);
     statTheadTr.appendChild(th);
   }
@@ -450,12 +492,12 @@ export function mountClothingLoadout(opts) {
   statSplit.appendChild(statXScroll);
   statsScroll.appendChild(statSplit);
 
-  mainCol.appendChild(toolbar);
-  mainCol.appendChild(optRow);
-  mainCol.appendChild(statsScroll);
+  tableCol.appendChild(statsScroll);
 
   bodyLayout.appendChild(slotsCol);
-  bodyLayout.appendChild(mainCol);
+  bodyLayout.appendChild(optimizeCol);
+  bodyLayout.appendChild(tableCol);
+  bodyLayout.appendChild(loadoutsCol);
 
   root.appendChild(bodyLayout);
 
@@ -645,8 +687,10 @@ export function mountClothingLoadout(opts) {
   function setActiveTab(idx) {
     activeTab = idx;
     for (let i = 0; i < tabBtns.length; i++) {
-      tabBtns[i].classList.toggle("clothing-loadout__tab--active", i === idx);
-      tabBtns[i].setAttribute("aria-pressed", i === idx ? "true" : "false");
+      const on = i === idx;
+      tabBtns[i].classList.toggle("object-type-dropdown__option--selected", on);
+      tabBtns[i].setAttribute("aria-selected", on ? "true" : "false");
+      tabBtns[i].setAttribute("aria-pressed", on ? "true" : "false");
     }
     saveToStorage();
     refreshSlotsAndTotals();
@@ -655,15 +699,17 @@ export function mountClothingLoadout(opts) {
   for (let t = 0; t < 5; t++) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "clothing-loadout__tab";
+    b.className = "object-type-dropdown__option clothing-loadout__loadout-tab";
+    b.setAttribute("role", "tab");
     b.textContent = "Loadout " + String(t + 1);
+    b.setAttribute("aria-selected", "false");
     b.setAttribute("aria-pressed", "false");
     const idx = t;
     b.addEventListener("click", function () {
       setActiveTab(idx);
     });
     tabBtns.push(b);
-    tabs.appendChild(b);
+    loadoutsPanel.appendChild(b);
   }
 
   for (let s = 0; s < SLOT_IDS.length; s++) {
@@ -672,18 +718,6 @@ export function mountClothingLoadout(opts) {
       setSlot(sid, null);
     });
   }
-
-  optBtn.addEventListener("click", function () {
-    const statId = optSelect.value;
-    const optimal = computeOptimalLoadoutByStat(clothingItems(), statId);
-    const L = currentLoadout();
-    for (let s = 0; s < SLOT_IDS.length; s++) {
-      const id = SLOT_IDS[s];
-      L[id] = optimal[id];
-    }
-    saveToStorage();
-    refreshSlotsAndTotals();
-  });
 
   loadFromStorage();
   setActiveTab(activeTab);
