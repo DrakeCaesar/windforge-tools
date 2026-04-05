@@ -68,8 +68,17 @@ body {
   background: linear-gradient(180deg, var(--top-gradient-start), var(--bg));
 }
 
-.top h1 {
-  margin: 0 0 6px;
+.top__title-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.top__title-block h1 {
+  margin: 0;
   font-size: 22px;
   font-weight: 650;
 }
@@ -91,7 +100,7 @@ body {
   flex-wrap: wrap;
   gap: 12px var(--page-padding);
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .controls label {
@@ -100,15 +109,14 @@ body {
   gap: 4px;
   font-size: 13px;
   color: var(--muted);
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
 }
 
 .controls label.controls-checkbox-row {
   flex-direction: row;
   align-items: center;
   gap: 7px;
-  align-self: center;
   min-height: 16px;
   line-height: 16px;
   cursor: pointer;
@@ -152,7 +160,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  align-self: center;
+  align-self: flex-start;
   align-items: flex-start;
   width: max-content;
 }
@@ -459,11 +467,11 @@ body {
 }
 
 .count {
-  font-size: 14px;
+  display: block;
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--muted);
-  align-self: center;
-  min-width: 15ch;
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
