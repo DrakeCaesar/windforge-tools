@@ -275,6 +275,34 @@ const COLUMN_BY_ID = {};
 for (let i = 0; i < COLUMNS.length; i++) {
   COLUMN_BY_ID[COLUMNS[i].id] = COLUMNS[i];
 }
+
+/**
+ * Numeric value for a clothing column def (same interpretation as sort / main table).
+ * @param {*} item
+ * @param {*} colDef — `clothingEquipField` and/or `clothingTraitKey`
+ * @returns {number|null}
+ */
+export function getClothingStatValueForColumnDef(item, colDef) {
+  if (!colDef || (!colDef.clothingEquipField && !colDef.clothingTraitKey)) return null;
+  const e = item && item.equipSetupInfo;
+  if (!e) return null;
+  if (colDef.clothingEquipField) {
+    const v = e[colDef.clothingEquipField];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  }
+  if (colDef.clothingTraitKey) {
+    const t = e.characterTraits;
+    if (!t) return null;
+    const raw = t[colDef.clothingTraitKey];
+    if (raw == null) return null;
+    const s = typeof raw === "string" ? raw : String(raw);
+    if (!s.trim()) return null;
+    const n = parseFloat(s);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
 /** Shown when Object type filter is MeleeWeapon or JackHammer (both use `meleeWeaponSetupInfo`). */
 const MELEE_WEAPON_OBJECT_TYPE = "MeleeWeapon";
 const JACKHAMMER_OBJECT_TYPE = "JackHammer";
@@ -531,35 +559,8 @@ function createSortPermutationBindings(deps) {
     return null;
   }
 
-  function getClothingEquipSetup(item) {
-    return item.equipSetupInfo;
-  }
-
-  function clothingTraitRawString(equip, key) {
-    if (!equip || !equip.characterTraits) return "";
-    const t = equip.characterTraits;
-    const v = t[key];
-    if (v == null) return "";
-    return typeof v === "string" ? v : String(v);
-  }
-
-  function clothingTraitNumberForSort(equip, key) {
-    const s = clothingTraitRawString(equip, key);
-    if (!s) return null;
-    const n = parseFloat(s);
-    return Number.isNaN(n) ? null : n;
-  }
-
   function getClothingStatSortValue(item, colDef) {
-    const e = getClothingEquipSetup(item);
-    if (!e) return null;
-    if (colDef.clothingEquipField) {
-      return e[colDef.clothingEquipField];
-    }
-    if (colDef.clothingTraitKey) {
-      return clothingTraitNumberForSort(e, colDef.clothingTraitKey);
-    }
-    return null;
+    return getClothingStatValueForColumnDef(item, colDef);
   }
 
   /** @returns {object|null} */

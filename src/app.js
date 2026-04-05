@@ -8,6 +8,9 @@ import { itemCatalogSortPermutation as SP } from "./sort-permutation-core.js";
 import sortPermutationCoreSource from "./sort-permutation-core.js?raw";
 import inventoryIconOrderSource from "./inventory-icon-order.js?raw";
 import { WindforgeColors } from "./colors.js";
+import { mountClothingLoadout } from "./clothing-loadout.js";
+import { formatCatalogStatNumber } from "./catalog-stat-format.js";
+import { appendDiagonalHeaderLabel } from "./diagonal-table-header.js";
 
 function createSortCacheWorker() {
   return new Worker(new URL("./sort-cache-worker.js", import.meta.url), { type: "module" });
@@ -90,6 +93,9 @@ function createSortCacheWorker() {
 
   /** From catalog `sharedblockinfo`: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
+
+  /** @type {{ refresh: () => void } | null} */
+  let clothingLoadoutController = null;
 
   /** @type {string} */
   let sortColumn = "display";
@@ -730,6 +736,7 @@ function createSortCacheWorker() {
       hideNormalTier: o.hideNormalTier === true,
       hideQualityTier: o.hideQualityTier === true,
       hideMastercraftTier: o.hideMastercraftTier === true,
+      clothingPlannerOpen: o.clothingPlannerOpen === true,
     };
   }
 
@@ -756,6 +763,10 @@ function createSortCacheWorker() {
         hideNormalTier: !!(hideNormalTierEl && hideNormalTierEl.checked),
         hideQualityTier: !!(hideQualityTierEl && hideQualityTierEl.checked),
         hideMastercraftTier: !!(hideMastercraftTierEl && hideMastercraftTierEl.checked),
+        clothingPlannerOpen: !!(
+          document.getElementById("clothing-loadout-details") &&
+          document.getElementById("clothing-loadout-details").open
+        ),
       })
     );
   }
@@ -2353,29 +2364,6 @@ function createSortCacheWorker() {
     return (neg ? "-" : "") + grouped + frac;
   }
 
-  /**
-   * Non-price numeric cells: round to 3 decimal places; optional fixed decimals can be provided per column.
-   * Buy/sell use {@link formatPriceWithSpaces} (integer).
-   * @param {{ hideZero?: boolean, decimals?: number }} [opts]
-   *   - hideZero: if true, exact 0 renders as empty (existing catalog convention).
-   *   - decimals: fixed display precision [0..3]; when omitted, trailing zeros are trimmed.
-   */
-  function formatCatalogStatNumber(v, opts) {
-    const hideZero = opts && opts.hideZero;
-    if (v == null || typeof v !== "number" || Number.isNaN(v)) return "—";
-    if (hideZero && v === 0) return "";
-    const rounded = Math.round(v * 1000) / 1000;
-    const fixedDecimals = opts && Number.isFinite(opts.decimals) ? opts.decimals : null;
-    if (fixedDecimals != null) {
-      const d = Math.max(0, Math.min(3, Math.trunc(fixedDecimals)));
-      return rounded.toFixed(d);
-    }
-    let s = rounded.toFixed(3);
-    s = s.replace(/(\.\d*?)0+$/, "$1");
-    if (s.endsWith(".")) s = s.slice(0, -1);
-    return s;
-  }
-
   function getColumnStatDecimals(colId) {
     if (Object.prototype.hasOwnProperty.call(statColumnDecimalsById, colId)) {
       return statColumnDecimalsById[colId];
@@ -2701,6 +2689,52 @@ function createSortCacheWorker() {
       .catch(function () {
         fatal(new Error("Icon decode failed for " + String(item && item.name) + ": " + String(url)));
       });
+  }
+
+  function renderClothingLoadoutSlotIcon(wrap, item) {
+    wrap.replaceChildren();
+    if (!item) {
+      const ph = document.createElement("span");
+      ph.className = "item-icon clothing-loadout__slot-icon-ph";
+      ph.setAttribute("aria-hidden", "true");
+      wrap.appendChild(ph);
+      return;
+    }
+    const url = iconUrlFor(item);
+    const img = document.createElement("img");
+    img.alt = "";
+    try {
+      wireCatalogItemIcon(img, item, url, {
+        onLoadError: function () {
+          wrap.textContent = displayName(item);
+        },
+      });
+      wrap.appendChild(img);
+    } catch (e) {
+      wrap.textContent = displayName(item);
+    }
+  }
+
+  function initClothingLoadoutPlanner(catalogStorageKeySuffix) {
+    const root = document.getElementById("clothing-loadout-panel");
+    if (!root) return;
+    if (clothingLoadoutController) {
+      clothingLoadoutController.refresh();
+      return;
+    }
+    clothingLoadoutController = mountClothingLoadout({
+      root,
+      clothingObjectType: CLOTHING_ITEM_OBJECT_TYPE,
+      getItemByName: function (name) {
+        return itemByName.get(name);
+      },
+      getAllItems: function () {
+        return data.ItemList;
+      },
+      displayName: displayName,
+      renderSlotIcon: renderClothingLoadoutSlotIcon,
+      storageKey: "windforge-clothing-loadouts:" + String(catalogStorageKeySuffix || "default"),
+    });
   }
 
   /** Decode a recipe-set PNG once; cached for tooltips and any later use. */
@@ -4394,19 +4428,6 @@ function createSortCacheWorker() {
     const thead = document.getElementById("thead");
     thead.innerHTML = "";
     const tr = document.createElement("tr");
-    function appendDiagonalHeaderLabel(th, text) {
-      const wrap = document.createElement("span");
-      wrap.className = "num-diagonal-wrap";
-      const label = document.createElement("span");
-      label.className = "num-diagonal-label";
-      const labelText = document.createElement("span");
-      labelText.className = "num-diagonal-label-text";
-      labelText.textContent = text;
-      label.appendChild(labelText);
-      wrap.appendChild(label);
-      th.appendChild(wrap);
-    }
-
     const cols = visibleColumns();
     for (let c = 0; c < cols.length; c++) {
       const col = cols[c];
@@ -4648,6 +4669,15 @@ function createSortCacheWorker() {
       tr.appendChild(td);
     }
     tr._item = item;
+    if (item.objectType === CLOTHING_ITEM_OBJECT_TYPE) {
+      tr.draggable = true;
+      tr.title = "Drag into a clothing loadout slot";
+      tr.addEventListener("dragstart", function (e) {
+        e.dataTransfer.setData("application/x-windforge-item-name", item.name);
+        e.dataTransfer.setData("text/plain", item.name);
+        e.dataTransfer.effectAllowed = "copy";
+      });
+    }
     return tr;
   }
 
@@ -5279,6 +5309,10 @@ function createSortCacheWorker() {
   });
 
   document.getElementById("q").addEventListener("input", scheduleRenderFromSearch);
+  const clothingLoadoutDetailsEl = document.getElementById("clothing-loadout-details");
+  if (clothingLoadoutDetailsEl) {
+    clothingLoadoutDetailsEl.addEventListener("toggle", schedulePersistUI);
+  }
   document.getElementById("filter-object-type").addEventListener("change", render);
   initObjectTypeDropdown();
   initSecondarySortDropdown();
@@ -5613,10 +5647,16 @@ function createSortCacheWorker() {
       hideMastercraftTierEl.checked = true;
     }
 
+    const clothingDetailsRestore = document.getElementById("clothing-loadout-details");
+    if (clothingDetailsRestore && persisted && persisted.clothingPlannerOpen) {
+      clothingDetailsRestore.open = true;
+    }
+
     if (rawIconDataUrlCache.size > 0 || tintedIconDataUrlCache.size > 0) {
       await primeIconsForInitialViewport(getFilteredSortedItemList());
     }
     render();
+    initClothingLoadoutPlanner(sortPermCacheCatalogId);
     scheduleBackgroundSortPermCacheBuild();
     scheduleBackgroundIconWarmup();
   }

@@ -1386,3 +1386,390 @@ main {
   background: linear-gradient(90deg, #3d8fd1, #5cb87a);
   transition: width 0.15s ease-out;
 }
+
+/* Clothing loadout planner (below header) */
+.clothing-loadout-details {
+  flex-shrink: 0;
+  max-width: var(--catalog-max-width);
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 20px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.clothing-loadout-details__summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 8px 0 4px;
+  list-style: none;
+}
+
+.clothing-loadout-details__summary::-webkit-details-marker {
+  display: none;
+}
+
+.clothing-loadout-details__summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--muted);
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
+}
+
+.clothing-loadout-details[open] .clothing-loadout-details__summary::before {
+  transform: rotate(90deg);
+}
+
+.clothing-loadout-details__panel {
+  padding-bottom: 8px;
+}
+
+.clothing-loadout__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.clothing-loadout__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.clothing-loadout__tab {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.clothing-loadout__tab:hover {
+  background: var(--surface-hover);
+}
+
+.clothing-loadout__tab--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+}
+
+.clothing-loadout__optimize {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.clothing-loadout__optimize-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.clothing-loadout__optimize-select {
+  min-width: 160px;
+  max-width: 100%;
+  height: var(--control-h);
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.clothing-loadout__optimize-btn {
+  height: var(--control-h);
+  padding: 0 12px;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.clothing-loadout__optimize-btn:hover {
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel));
+}
+
+.clothing-loadout__body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 20px;
+}
+
+.clothing-loadout__slots-col {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+.clothing-loadout__slots-dropzone {
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 40%, var(--bg));
+}
+
+.clothing-loadout.clothing-loadout--drop-hover {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, var(--border));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.clothing-loadout__slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clothing-loadout__main-col {
+  flex: 1 1 280px;
+  min-width: min(100%, 260px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-self: stretch;
+}
+
+/* Same shell as main catalog: `.table-wrap` + `.table-x-scroll` + `.table-head-wrap` clips diagonal headers; JSON column extends into scrollbar gutter. */
+.clothing-loadout__stat-table-wrap.table-wrap {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  background: var(--panel);
+  /* Diagonal last-column label can extend slightly past the table box; default `hidden` clips it. */
+  overflow: visible;
+}
+
+.clothing-loadout__stat-table-wrap .table-split {
+  width: max-content;
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+.clothing-loadout__stat-table-wrap .table-x-scroll {
+  overflow-x: visible;
+}
+
+/* Few fixed rows: no vertical scrollbar or stable gutter (unlike main catalog virtual scroll). */
+.clothing-loadout__stat-table-wrap .table-body-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: visible;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+
+.clothing-loadout__stat-table-wrap .table-body-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Outer grid lines (main catalog omits them on scroll edges). */
+.clothing-loadout__stat-table.wiki-table-head thead th:first-child {
+  border-left: 1px solid var(--border);
+}
+
+/* Loadout stat grid: reuse main `.wiki-table` + diagonal numeric headers; scoped tweaks only. */
+.clothing-loadout__stat-table.wiki-table {
+  /* Inherit `.wiki-table` width: auto; column widths come from <colgroup> (same idea as main table). */
+  width: auto;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.clothing-loadout__stat-table.wiki-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.clothing-loadout__stat-table.wiki-table thead th.clothing-loadout__th-corner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  text-align: left;
+  vertical-align: middle;
+  padding: 7px 9px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--thead-bg);
+}
+
+.clothing-loadout__stat-table.wiki-table thead th.num-diagonal {
+  height: 76px;
+}
+
+.clothing-loadout__stat-table.wiki-table thead th.num-diagonal .num-diagonal-label {
+  padding: 0px;
+  padding-bottom: 4px;
+}
+
+/* Last stat col: do not use `left: 50%` (wider col pushes the pivot right and clips under `.table-head-wrap`). */
+.clothing-loadout__stat-table.wiki-table thead th.num-diagonal:last-child .num-diagonal-label {
+  left: 5px;
+  padding-bottom: 0px;
+}
+
+
+.clothing-loadout__stat-table.wiki-table tbody th.clothing-loadout__td-slot {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+  vertical-align: middle;
+  white-space: nowrap;
+  min-width: 0;
+  padding: 4px 4px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.clothing-loadout__stat-table.wiki-table tfoot th.clothing-loadout__td-slot {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  text-align: left;
+  font-weight: 400;
+  color: var(--text);
+  background: color-mix(in srgb, var(--thead-bg) 40%, var(--panel));
+  min-width: 0;
+  padding: 4px 4px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.clothing-loadout__stat-table.wiki-table tfoot td {
+  background: color-mix(in srgb, var(--thead-bg) 40%, var(--panel));
+  font-weight: 400;
+  min-width: 0;
+  padding: 4px 4px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.clothing-loadout__stat-table.wiki-table tfoot .clothing-loadout__tf-sum--air {
+  color: color-mix(in srgb, #e8b86d 75%, var(--text));
+}
+
+/* Stable row height: empty cells were shorter than cells with numbers. */
+.clothing-loadout__stat-table.wiki-table tbody td,
+.clothing-loadout__stat-table.wiki-table tbody th.clothing-loadout__td-slot,
+.clothing-loadout__stat-table.wiki-table tfoot td,
+.clothing-loadout__stat-table.wiki-table tfoot th.clothing-loadout__td-slot {
+  min-height: 30px;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+.clothing-loadout__slot {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--panel) 70%, var(--bg));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-height: 0;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.clothing-loadout__slot-label {
+  flex: 0 0 3.25rem;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.clothing-loadout__slot-icon-wrap {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clothing-loadout__slot-icon-wrap .item-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+/* Empty slot: same framed cell as equipped icons, no image */
+.clothing-loadout__slot-icon-wrap .clothing-loadout__slot-icon-ph {
+  display: block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.clothing-loadout__slot-name {
+  flex: 1 1 auto;
+  min-width: var(--clothing-loadout-slot-name-min-px, 120px);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text);
+  text-align: left;
+  word-break: break-word;
+}
+
+.clothing-loadout__slot-name--missing {
+  color: #c97a7a;
+}
+
+.clothing-loadout__slot-clear {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.clothing-loadout__slot-clear:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+tr.v-row[draggable="true"] {
+  cursor: grab;
+}
+
+tr.v-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
