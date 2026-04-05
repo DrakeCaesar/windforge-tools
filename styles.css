@@ -1898,10 +1898,26 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
 }
 
 .clothing-loadout__tie-tooltip .clothing-loadout__tie-row {
+  align-items: flex-start;
   cursor: pointer;
   border-radius: 4px;
   margin: 0 -6px;
   padding: 4px 6px;
+}
+
+.clothing-loadout__tie-tooltip .clothing-loadout__tie-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clothing-loadout__tie-tooltip .clothing-loadout__tie-diff {
+  font: var(--text-10) var(--font-family-ui);
+  color: var(--muted);
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .clothing-loadout__tie-tooltip .clothing-loadout__tie-row:hover {

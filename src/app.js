@@ -4532,7 +4532,6 @@ function createSortCacheWorker() {
   function wireClothingIconDrag(iconEl, item) {
     if (!iconEl || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return;
     iconEl.draggable = true;
-    iconEl.title = "Drag into the clothing loadout slots area";
     if (iconEl.dataset.wfClothingDragBound === "1") return;
     iconEl.dataset.wfClothingDragBound = "1";
     iconEl.addEventListener("dragstart", function (e) {
@@ -4647,7 +4646,6 @@ function createSortCacheWorker() {
           inner.className = "col-desc-text";
           inner.textContent = full || "—";
           td.appendChild(inner);
-          if (full) td.title = full;
           break;
         }
         case "dmgPhysical": {
@@ -5744,7 +5742,6 @@ function createSortCacheWorker() {
       const c = document.getElementById("count");
       if (c) {
         c.textContent = "Load failed";
-        c.title = err && err.message ? err.message : String(err);
       }
     } finally {
       try {

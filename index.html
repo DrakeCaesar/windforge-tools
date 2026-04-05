@@ -55,7 +55,6 @@
               class="object-type-filter-select-hidden"
               tabindex="-1"
               aria-hidden="true"
-              title="Filter by objectType"
             ></select>
           </div>
         </label>
@@ -87,14 +86,13 @@
               class="object-type-filter-select-hidden"
               tabindex="-1"
               aria-hidden="true"
-              title="Alphabetical: internal name A–Z as tie-break. Recipe order: when sorting by the Internal name column, use recipe-family ordering from recipe-sort.js; other columns still tie-break by A–Z internal name."
             >
               <option value="name">Alphabetical (internal name)</option>
               <option value="recipeBase">Recipe order (internal name column)</option>
             </select>
           </div>
         </label>
-        <label title="Character wisdom stat used for store price adjustment">
+        <label>
           Wisdom
           <span class="number-input-spin">
             <input
@@ -110,23 +108,20 @@
                 type="button"
                 class="number-input-spin__btn number-input-spin__btn--up"
                 tabindex="-1"
-                title="Increase wisdom"
                 aria-label="Increase wisdom"
               ></button>
               <button
                 type="button"
                 class="number-input-spin__btn number-input-spin__btn--down"
                 tabindex="-1"
-                title="Decrease wisdom"
                 aria-label="Decrease wisdom"
               ></button>
             </span>
           </span>
         </label>
-        <div class="special-filters" title="Special-items filters">
+        <div class="special-filters">
           <label
             class="controls-checkbox-row"
-            title="When checked, hide UnknownIcon items, Debug/Test items, and Paratrooper red Torso clothing (IconRed1/IconRed2)."
           >
             <input type="checkbox" id="hide-special-items" />
             <span>Hide Special Items</span>
@@ -134,31 +129,27 @@
 
           <label
             class="controls-checkbox-row"
-            title="When checked, show only UnknownIcon items, Debug/Test items, and Paratrooper red Torso clothing (IconRed1/IconRed2)."
           >
             <input type="checkbox" id="show-special-only" />
             <span>Show Special Only</span>
           </label>
         </div>
 
-        <div class="special-filters" title="Hide crafted tier variants">
+        <div class="special-filters">
           <label
             class="controls-checkbox-row"
-            title="Hide normal tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
           >
             <input type="checkbox" id="hide-normal-tier" />
             <span>Hide Normal</span>
           </label>
           <label
             class="controls-checkbox-row"
-            title="Hide quality tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
           >
             <input type="checkbox" id="hide-quality-tier" />
             <span>Hide Quality</span>
           </label>
           <label
             class="controls-checkbox-row"
-            title="Hide mastercraft tier craft items (only when a full Normal/Quality/MasterCraft family exists and the item has a recipe)."
           >
             <input type="checkbox" id="hide-mastercraft-tier" />
             <span>Hide MasterCraft</span>

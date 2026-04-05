@@ -4,7 +4,10 @@
  */
 
 import { appendDiagonalHeaderLabel } from "./diagonal-table-header.js";
-import { formatCatalogStatNumber } from "./catalog-stat-format.js";
+import {
+  computeStatDecimalsFromValues,
+  formatCatalogStatNumber,
+} from "./catalog-stat-format.js";
 import { measureClothingLoadoutColumnMetrics } from "./catalog-stat-layout.js";
 import {
   getClothingStatValueForColumnDef,
@@ -179,6 +182,31 @@ function listItemsMatchingEquippedStatInSlot(
     return da.localeCompare(db);
   });
   return out;
+}
+
+/**
+ * How an alternate differs from the equipped piece on other stats (tie column skipped).
+ * @param {*} equipped
+ * @param {*} alternate
+ * @param {string} tieStatColumnId
+ * @returns {string}
+ */
+function formatClothingStatDiffsVsEquipped(equipped, alternate, tieStatColumnId) {
+  const parts = [];
+  for (let i = 0; i < CLOTHING_STAT_DEFS.length; i++) {
+    const def = CLOTHING_STAT_DEFS[i];
+    if (def.id === tieStatColumnId) continue;
+    const vEq = getClothingStatValueForColumnDef(equipped, def);
+    const vAlt = getClothingStatValueForColumnDef(alternate, def);
+    if (vEq == null || vAlt == null) continue;
+    const delta = vAlt - vEq;
+    if (valuesNearlyEqual(delta, 0)) continue;
+    const decimals = computeStatDecimalsFromValues([vEq, vAlt, delta]);
+    const sign = delta > 0 ? "+" : "-";
+    const num = formatCatalogStatNumber(Math.abs(delta), { decimals });
+    parts.push(sign + num + " " + def.label.toLowerCase());
+  }
+  return parts.join(" ");
 }
 
 /** Slot row uses a wrap; tooltips should align to the actual `.item-icon` (img or placeholder). */
@@ -541,7 +569,10 @@ export function mountClothingLoadout(opts) {
     const locked = !!currentLoadoutLocks()[slotId];
     btn.classList.toggle("clothing-loadout__slot-lock--locked", locked);
     btn.setAttribute("aria-pressed", locked ? "true" : "false");
-    btn.title = locked ? "Slot locked — Optimize will not change this slot" : "Lock slot (Optimize will skip)";
+    btn.setAttribute(
+      "aria-label",
+      locked ? "Slot locked — Optimize will not change this slot" : "Lock slot (Optimize will skip)"
+    );
     const openSvg =
       '<svg class="clothing-loadout__lock-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0"/></svg>';
     const shutSvg =
@@ -560,7 +591,6 @@ export function mountClothingLoadout(opts) {
     const box = document.createElement("div");
     box.className = "clothing-loadout__slot";
     box.dataset.slotId = def.id;
-    box.title = def.label;
 
     const lab = document.createElement("div");
     lab.className = "clothing-loadout__slot-label";
@@ -593,7 +623,6 @@ export function mountClothingLoadout(opts) {
     clearBtn.type = "button";
     clearBtn.className = "clothing-loadout__slot-clear";
     clearBtn.setAttribute("aria-label", "Clear " + def.label);
-    clearBtn.title = "Clear " + def.label;
     clearBtn.innerHTML =
       '<svg class="clothing-loadout__clear-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
@@ -637,11 +666,17 @@ export function mountClothingLoadout(opts) {
             equipped,
             clothingItems(),
             displayName
-          );
+          ).filter(function (it) {
+            return it && it.name !== equipped.name;
+          });
           const colDef = CLOTHING_STAT_DEFS.find(function (d) {
             return d.id === activeOptimizeStatId;
           });
           if (!colDef) {
+            hideTieTooltip();
+            return;
+          }
+          if (!tied.length) {
             hideTieTooltip();
             return;
           }
@@ -675,7 +710,6 @@ export function mountClothingLoadout(opts) {
             li.className = "recipe-tooltip__row clothing-loadout__tie-row";
             li.setAttribute("role", "button");
             li.tabIndex = 0;
-            li.title = "Equip " + (displayName(it) || it.name || "");
             const slotIdForRow = slotId;
             const itemRef = it;
             li.addEventListener("click", function (ev) {
@@ -697,12 +731,26 @@ export function mountClothingLoadout(opts) {
             iconWrapRow.dataset.itemName = it.name;
             renderSlotIcon(iconWrapRow, it);
 
+            const textCol = document.createElement("div");
+            textCol.className = "clothing-loadout__tie-row-text";
             const nameSpan = document.createElement("span");
             nameSpan.className = "recipe-tooltip__ing-name";
             nameSpan.textContent = displayName(it) || it.name || "";
+            textCol.appendChild(nameSpan);
+            const diffLine = formatClothingStatDiffsVsEquipped(
+              equipped,
+              it,
+              activeOptimizeStatId
+            );
+            if (diffLine) {
+              const diffSpan = document.createElement("span");
+              diffSpan.className = "clothing-loadout__tie-diff";
+              diffSpan.textContent = diffLine;
+              textCol.appendChild(diffSpan);
+            }
 
             li.appendChild(iconWrapRow);
-            li.appendChild(nameSpan);
+            li.appendChild(textCol);
             ul.appendChild(li);
           }
           tieTooltipEl.appendChild(ul);
@@ -816,12 +864,6 @@ export function mountClothingLoadout(opts) {
     b.type = "button";
     b.className = "object-type-dropdown__option clothing-loadout__optimize-option";
     b.textContent = d.label;
-    b.title =
-      "Equip the best " +
-      d.label.toLowerCase() +
-      " in each body slot independently (" +
-      (d.id === "clothAirDrain" || d.id === "clothTraitWeight" ? "lowest" : "highest") +
-      " wins; locked slots and anti-gravity boots excluded).";
     const statId = d.id;
     optimizeOptionRefs.push({ btn: b, statId: statId });
     b.addEventListener("click", function () {
@@ -902,9 +944,6 @@ export function mountClothingLoadout(opts) {
     const th = document.createElement("th");
     th.className = "num num-diagonal hdr-diagonal-stat clothing-loadout__th-stat-col";
     th.setAttribute("scope", "col");
-    if (colDef.id === "clothAirDrain" || colDef.id === "clothTraitWeight") {
-      th.title = colDef.label + " (lower is better)";
-    }
     appendDiagonalHeaderLabel(th, colDef.label);
     statTheadTr.appendChild(th);
   }
@@ -978,7 +1017,6 @@ export function mountClothingLoadout(opts) {
     b.setAttribute("role", "tab");
     const n = String(t + 1);
     b.setAttribute("aria-label", "Loadout " + n);
-    b.title = "Loadout " + n;
     b.setAttribute("aria-selected", "false");
     b.setAttribute("aria-pressed", "false");
     const iconsRow = document.createElement("span");
@@ -1164,7 +1202,6 @@ export function mountClothingLoadout(opts) {
     thSumLabel.className = "clothing-loadout__td-slot clothing-loadout__tf-sum-label";
     thSumLabel.setAttribute("scope", "row");
     thSumLabel.textContent = "Sum";
-    thSumLabel.title = "Sum across the five slots for each stat";
     trFoot.appendChild(thSumLabel);
 
     for (let r = 0; r < CLOTHING_STAT_DEFS.length; r++) {
