@@ -41,6 +41,9 @@ function isClothingStatColumnDef(def) {
 /** Same order and defs as the main table clothing columns. */
 export const CLOTHING_STAT_DEFS = SP.COLUMNS.filter(isClothingStatColumnDef);
 
+/** Wider last stat col so default diagonal header (`left: 50%`) fits long labels (e.g. regen). */
+const LOADOUT_LAST_STAT_COL_EXTRA_PX = 20;
+
 /**
  * @param {*} item
  * @returns {string|null}
@@ -578,9 +581,12 @@ export function mountClothingLoadout(opts) {
     const slotW = measureSlotColumnWidthPx(measureEl) + "px";
     headCols.colSlot.style.width = slotW;
     bodyCols.colSlot.style.width = slotW;
+    const lastStatIdx = CLOTHING_STAT_DEFS.length - 1;
     for (let r = 0; r < CLOTHING_STAT_DEFS.length; r++) {
       const id = CLOTHING_STAT_DEFS[r].id;
-      const w = widthById[id] + "px";
+      let wPx = widthById[id];
+      if (r === lastStatIdx) wPx += LOADOUT_LAST_STAT_COL_EXTRA_PX;
+      const w = wPx + "px";
       const h = headCols.colByStatId[id];
       const b = bodyCols.colByStatId[id];
       if (h) h.style.width = w;

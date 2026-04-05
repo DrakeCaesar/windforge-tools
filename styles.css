@@ -1545,25 +1545,18 @@ main {
   align-self: stretch;
 }
 
-/* Same shell as main catalog: `.table-wrap` + `.table-x-scroll` + `.table-head-wrap` clips diagonal headers; JSON column extends into scrollbar gutter. */
+/* Same shell as main catalog: `.table-wrap` + `.table-x-scroll` + `.table-head-wrap`. */
 .clothing-loadout__stat-table-wrap.table-wrap {
   align-self: flex-start;
   width: fit-content;
   max-width: 100%;
   margin: 0;
   background: var(--panel);
-  /* Diagonal last-column label can extend slightly past the table box; default `hidden` clips it. */
-  overflow: visible;
 }
 
 .clothing-loadout__stat-table-wrap .table-split {
   width: max-content;
   max-width: 100%;
-  overflow-x: visible;
-}
-
-.clothing-loadout__stat-table-wrap .table-x-scroll {
-  overflow-x: visible;
 }
 
 /* Few fixed rows: no vertical scrollbar or stable gutter (unlike main catalog virtual scroll). */
@@ -1580,11 +1573,6 @@ main {
 .clothing-loadout__stat-table-wrap .table-body-scroll::-webkit-scrollbar {
   width: 0;
   height: 0;
-}
-
-/* Outer grid lines (main catalog omits them on scroll edges). */
-.clothing-loadout__stat-table.wiki-table-head thead th:first-child {
-  border-left: 1px solid var(--border);
 }
 
 /* Loadout stat grid: reuse main `.wiki-table` + diagonal numeric headers; scoped tweaks only. */
@@ -1618,17 +1606,16 @@ main {
   height: 76px;
 }
 
-.clothing-loadout__stat-table.wiki-table thead th.num-diagonal .num-diagonal-label {
-  padding: 0px;
-  padding-bottom: 4px;
-}
-
-/* Last stat col: do not use `left: 50%` (wider col pushes the pivot right and clips under `.table-head-wrap`). */
+/*
+ * Default diagonal headers use `left: 50%` + translate so the label straddles the column center.
+ * The last column’s pivot sits near the table’s right edge and clips under `.table-head-wrap`.
+ * Anchor from the left like the main table’s JSON column (see `.col-json.num-diagonal .num-diagonal-label`).
+ */
 .clothing-loadout__stat-table.wiki-table thead th.num-diagonal:last-child .num-diagonal-label {
-  left: 5px;
-  padding-bottom: 0px;
+  right: auto;
+  transform: translateX(0) rotate(-45deg);
+  transform-origin: bottom left;
 }
-
 
 .clothing-loadout__stat-table.wiki-table tbody th.clothing-loadout__td-slot {
   position: sticky;
@@ -1642,7 +1629,7 @@ main {
   white-space: nowrap;
   min-width: 0;
   padding: 4px 4px;
-  border-left: 1px solid var(--border);
+  border-left: none;
   border-bottom: 1px solid var(--border);
   overflow: hidden;
 }
@@ -1657,8 +1644,8 @@ main {
   background: color-mix(in srgb, var(--thead-bg) 40%, var(--panel));
   min-width: 0;
   padding: 4px 4px;
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-left: none;
+  border-bottom: none;
   overflow: hidden;
 }
 
@@ -1668,7 +1655,7 @@ main {
   min-width: 0;
   padding: 4px 4px;
   border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   vertical-align: middle;
   overflow: hidden;
 }
