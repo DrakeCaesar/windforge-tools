@@ -1133,7 +1133,7 @@ function createSortCacheWorker() {
   ) {
     if (!layerEl) return;
     const margin = 8;
-    const iconGap = -1;
+    const iconGap = 4;
     const nestedPanelGap = 6;
     const minH = 160;
     let anchor =
@@ -1168,11 +1168,10 @@ function createSortCacheWorker() {
       typeof parentPanel.getBoundingClientRect === "function"
         ? parentPanel.getBoundingClientRect()
         : null;
-    /** Main flyout follows the pointer; nested flyouts align to the hovered ingredient icon. */
-    const refY =
-      layerEl !== recipeTooltipEl && anchorRect
-        ? anchorRect.top + anchorRect.height / 2
-        : clientY;
+    /** Align to the hovered list icon center (same vertical reference as nested flyouts). */
+    const refY = anchorRect
+      ? anchorRect.top + anchorRect.height / 2
+      : clientY;
     const below = window.innerHeight - margin - refY;
     const above = refY - margin;
     const placeBelow = below >= minH || below >= above;
@@ -1245,7 +1244,7 @@ function createSortCacheWorker() {
         }
       }
       let refY2 = clientY;
-      if (layerEl !== recipeTooltipEl && ar2) {
+      if (ar2) {
         refY2 = ar2.top + ar2.height / 2;
       }
       let y = placeBelow ? refY2 : refY2 - r.height;
@@ -4573,9 +4572,7 @@ function createSortCacheWorker() {
           return;
         }
     const iconNode = td.querySelector(".item-icon");
-    if (iconNode) {
-      bindRecipeHover(iconNode, item);
-    }
+    bindRecipeHover(iconNode || img, item);
     wireClothingIconDrag(img, item);
   }
 
@@ -4604,7 +4601,6 @@ function createSortCacheWorker() {
         case "icon":
           td.className = "col-icon";
           appendIconToCell(td, item);
-          bindRecipeHover(td, item);
           break;
         case "display":
           td.textContent = displayName(item);
