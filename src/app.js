@@ -4549,6 +4549,7 @@ function createSortCacheWorker() {
     const reused = liveIconNodeByItemName.get(item.name);
     if (reused) {
       td.appendChild(reused);
+      bindRecipeHover(reused, item);
       wireClothingIconDrag(reused, item);
       return;
     }
