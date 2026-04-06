@@ -936,6 +936,28 @@ function createSortCacheWorker() {
     return !hideMaster;
   }
 
+  /**
+   * Recipe tooltips often reference the normal-tier name; if that tier is hidden by the tier
+   * checkboxes, navigate to another variant in the same craft family that is still visible.
+   * @param {string} itemName
+   * @returns {string}
+   */
+  function resolveItemNameForTierNav(itemName) {
+    const target = itemByName.get(itemName);
+    if (!target) return itemName;
+    if (passesTierVariantFilters(target)) return itemName;
+    if (!itemHasDistinctThreeTierFamily(target)) return itemName;
+    const base = getCraftTierInfo(target.name).base;
+    const candidates = [base, "Quality" + base, "MasterCraft" + base];
+    for (let i = 0; i < candidates.length; i++) {
+      const nm = candidates[i];
+      if (nm === itemName) continue;
+      const it = itemByName.get(nm);
+      if (it && passesTierVariantFilters(it)) return nm;
+    }
+    return itemName;
+  }
+
   function iconUrlFor(item) {
     const inv = item.inventorySetupInfo;
     const raw = inv.inventoryIconFile;
@@ -1598,10 +1620,12 @@ function createSortCacheWorker() {
   function navigateToTooltipItem(itemName) {
     const target = itemByName.get(itemName);
     if (!target) return;
+    const scrollName = resolveItemNameForTierNav(itemName);
+    const scrollTarget = itemByName.get(scrollName) || target;
     const sel = document.getElementById("filter-object-type");
     const qEl = document.getElementById("q");
     const currentType = sel ? sel.value : "";
-    const targetType = target.objectType || "";
+    const targetType = scrollTarget.objectType || "";
     const allTypes = !currentType;
     let needsRender = false;
 
@@ -1612,18 +1636,18 @@ function createSortCacheWorker() {
     }
     if (qEl) {
       const q = (qEl.value || "").trim();
-      if (q && !matchesQuery(target, q)) {
+      if (q && !matchesQuery(scrollTarget, q)) {
         qEl.value = "";
         needsRender = true;
       }
     }
 
     if (needsRender) render();
-    if (!scrollToItemInCurrentView(itemName)) {
+    if (!scrollToItemInCurrentView(scrollName)) {
       if (qEl && (qEl.value || "").trim() !== "") {
         qEl.value = "";
         render();
-        scrollToItemInCurrentView(itemName);
+        scrollToItemInCurrentView(scrollName);
       }
     }
     hideRecipeTooltip();
