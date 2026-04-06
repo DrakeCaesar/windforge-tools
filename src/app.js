@@ -8,8 +8,17 @@ import { itemCatalogSortPermutation as SP } from "./sort-permutation-core.js";
 import sortPermutationCoreSource from "./sort-permutation-core.js?raw";
 import inventoryIconOrderSource from "./inventory-icon-order.js?raw";
 import { WindforgeColors } from "./colors.js";
-import { mountClothingLoadout } from "./clothing-loadout.js";
-import { formatCatalogStatNumber } from "./catalog-stat-format.js";
+import {
+  appendClothingStatDiffTooltip,
+  clothingSlotLabel,
+  clothingStatDeltasVsEquippedSlot,
+  getClothingSlotId,
+  mountClothingLoadout,
+} from "./clothing-loadout.js";
+import {
+  formatCatalogStatNumber,
+  measureCatalogStatTextWidthForSignedDelta,
+} from "./catalog-stat-format.js";
 import { appendDiagonalHeaderLabel } from "./diagonal-table-header.js";
 
 function createSortCacheWorker() {
@@ -94,7 +103,7 @@ function createSortCacheWorker() {
   /** From catalog `sharedblockinfo`: blockType string -> { hitPoints, mass, buoyancy, impactDamageMult }. */
   let blockTypes = {};
 
-  /** @type {{ refresh: () => void } | null} */
+  /** @type {{ refresh: () => void, getSlotItemName?: (slotId: string) => string | null } | null} */
   let clothingLoadoutController = null;
 
   /** @type {string} */
@@ -1820,6 +1829,115 @@ function createSortCacheWorker() {
     });
   }
 
+  function isClothingPlannerOpen() {
+    const el = document.getElementById("clothing-loadout-details");
+    return !!(el && el.open);
+  }
+
+  /**
+   * Appends "vs equipped" clothing stat deltas when the loadout planner is open.
+   * @returns {boolean} whether any diff content was added
+   */
+  function appendClothingPlannerDiffToRecipeTooltip(containerEl, item) {
+    if (!isClothingPlannerOpen()) return false;
+    if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return false;
+    const slotId = getClothingSlotId(item);
+    if (!slotId) return false;
+    const eqName =
+      clothingLoadoutController &&
+      typeof clothingLoadoutController.getSlotItemName === "function"
+        ? clothingLoadoutController.getSlotItemName(slotId)
+        : null;
+    const equipped = eqName ? itemByName.get(eqName) : null;
+    return appendClothingStatDiffTooltip(containerEl, item, equipped, {
+      slotLabel: clothingSlotLabel(slotId),
+      getDisplayName: displayName,
+    });
+  }
+
+  function restoreCatalogRowPlannerDelta(tr) {
+    const stash = tr._plannerCellStash;
+    if (!stash) return;
+    for (let j = 0; j < stash.length; j++) {
+      const st = stash[j];
+      st.td.textContent = st.text;
+      st.td.className = st.className;
+    }
+    delete tr._plannerCellStash;
+    tr.removeAttribute("data-planner-delta");
+  }
+
+  function restoreAllCatalogClothingPlannerDeltaRows() {
+    const tbody = document.getElementById("tbody");
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll("tr.v-row[data-planner-delta='1']");
+    for (let i = 0; i < rows.length; i++) {
+      restoreCatalogRowPlannerDelta(rows[i]);
+    }
+  }
+
+  function applyCatalogRowClothingPlannerDelta(tr) {
+    const item = tr._item;
+    if (!item || item.objectType !== CLOTHING_ITEM_OBJECT_TYPE) return;
+    const slotId = getClothingSlotId(item);
+    if (!slotId) return;
+    if (tr.dataset.plannerDelta === "1") restoreCatalogRowPlannerDelta(tr);
+    const eqName =
+      clothingLoadoutController &&
+      typeof clothingLoadoutController.getSlotItemName === "function"
+        ? clothingLoadoutController.getSlotItemName(slotId)
+        : null;
+    const equipped = eqName ? itemByName.get(eqName) : null;
+    const deltas = clothingStatDeltasVsEquippedSlot(item, equipped);
+    const byCol = Object.create(null);
+    for (let i = 0; i < deltas.length; i++) {
+      byCol[deltas[i].colId] = deltas[i];
+    }
+    /** @type {{ td: HTMLTableCellElement, text: string, className: string }[]} */
+    const stash = [];
+    const cells = tr.querySelectorAll("td[data-col-id]");
+    for (let i = 0; i < cells.length; i++) {
+      const td = cells[i];
+      const cid = td.dataset.colId;
+      if (!cid) continue;
+      stash.push({ td: td, text: td.textContent, className: td.className });
+      const d = byCol[cid];
+      if (!d || d.signed === "") {
+        td.textContent = "";
+      } else {
+        td.textContent = d.signed;
+        td.className =
+          td.className +
+          (d.tone === "good"
+            ? " clothing-cell--delta-good"
+            : d.tone === "bad"
+              ? " clothing-cell--delta-bad"
+              : "");
+      }
+    }
+    if (stash.length === 0) return;
+    tr._plannerCellStash = stash;
+    tr.dataset.plannerDelta = "1";
+  }
+
+  function attachCatalogRowClothingPlannerDeltaHover(tr) {
+    tr.addEventListener(
+      "mouseenter",
+      function () {
+        if (!isClothingPlannerOpen()) return;
+        applyCatalogRowClothingPlannerDelta(tr);
+      },
+      { passive: true }
+    );
+    tr.addEventListener(
+      "mouseleave",
+      function () {
+        restoreCatalogRowPlannerDelta(tr);
+      },
+      { passive: true }
+    );
+  }
+
   /**
    * @param {HTMLElement} containerEl
    * @param {number} layerIndex 0 = main flyout; 1–2 = nested (deeper icons are not wired)
@@ -1830,7 +1948,10 @@ function createSortCacheWorker() {
     const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
-    if (!hasCraft && !hasUsed) return false;
+    if (!hasCraft && !hasUsed) {
+      containerEl.innerHTML = "";
+      return false;
+    }
 
     containerEl.innerHTML = "";
     containerEl.scrollTop = 0;
@@ -2018,7 +2139,8 @@ function createSortCacheWorker() {
 
   async function fillRecipeTooltip(item) {
     const ok = await fillRecipeTooltipInto(recipeTooltipEl, item, 0);
-    if (ok) recipeTooltipEl.hidden = false;
+    const hadDiff = appendClothingPlannerDiffToRecipeTooltip(recipeTooltipEl, item);
+    recipeTooltipEl.hidden = !(ok || hadDiff);
   }
 
   function bindRecipeHover(targetEl, item) {
@@ -2026,7 +2148,9 @@ function createSortCacheWorker() {
     const usedIn = data.recipesByIngredient[item.name];
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
-    if (!hasCraft && !hasUsed) return;
+    const hasPlannerDiff =
+      item.objectType === CLOTHING_ITEM_OBJECT_TYPE && getClothingSlotId(item);
+    if (!hasCraft && !hasUsed && !hasPlannerDiff) return;
 
     if (targetEl && targetEl.dataset && targetEl.dataset.recipeHoverBound === "1") return;
     if (targetEl && targetEl.dataset) targetEl.dataset.recipeHoverBound = "1";
@@ -2035,7 +2159,9 @@ function createSortCacheWorker() {
     targetEl.classList.add("item-icon--recipe");
     targetEl.setAttribute(
       "aria-label",
-      "Craft / usage — hover to show recipe ingredients and where this item is used"
+      hasCraft || hasUsed
+        ? "Craft / usage — hover to show recipe ingredients and where this item is used"
+        : "Clothing — hover to compare stats with the equipped piece in the loadout planner"
     );
 
     targetEl.addEventListener(
@@ -2738,6 +2864,7 @@ function createSortCacheWorker() {
       displayName: displayName,
       renderSlotIcon: renderClothingLoadoutSlotIcon,
       storageKey: "windforge-clothing-loadouts:" + String(catalogStorageKeySuffix || "default"),
+      onLoadoutChanged: restoreAllCatalogClothingPlannerDeltaRows,
     });
   }
 
@@ -3582,7 +3709,9 @@ function createSortCacheWorker() {
           txt = formatCatalogStatNumber(v, { hideZero: hideZero, decimals: decimals });
         }
         if (!txt) continue;
-        const textPx = ctx.measureText(txt).width;
+        const textPx = isClothingStatColumnId(colId)
+          ? measureCatalogStatTextWidthForSignedDelta(ctx, txt)
+          : ctx.measureText(txt).width;
         if (textPx > maxTextPx) maxTextPx = textPx;
       }
       // Add horizontal cell padding + border allowance, then clamp for stability.
@@ -4712,13 +4841,18 @@ function createSortCacheWorker() {
         }
         default: {
           const colDef = COLUMN_BY_ID[col.id];
-          if (colDef) renderStatCellFromColumnDef(td, item, colDef);
-          else td.textContent = "—";
+          if (colDef) {
+            if (isClothingStatColumnDef(colDef)) td.dataset.colId = col.id;
+            renderStatCellFromColumnDef(td, item, colDef);
+          } else td.textContent = "—";
         }
       }
       tr.appendChild(td);
     }
     tr._item = item;
+    if (item.objectType === CLOTHING_ITEM_OBJECT_TYPE && getClothingSlotId(item)) {
+      attachCatalogRowClothingPlannerDeltaHover(tr);
+    }
     return tr;
   }
 
@@ -5366,7 +5500,10 @@ function createSortCacheWorker() {
   document.getElementById("q").addEventListener("input", scheduleRenderFromSearch);
   const clothingLoadoutDetailsEl = document.getElementById("clothing-loadout-details");
   if (clothingLoadoutDetailsEl) {
-    clothingLoadoutDetailsEl.addEventListener("toggle", schedulePersistUI);
+    clothingLoadoutDetailsEl.addEventListener("toggle", function () {
+      schedulePersistUI();
+      if (!clothingLoadoutDetailsEl.open) restoreAllCatalogClothingPlannerDeltaRows();
+    });
   }
   document.getElementById("filter-object-type").addEventListener("change", render);
   initObjectTypeDropdown();

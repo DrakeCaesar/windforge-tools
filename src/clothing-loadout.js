@@ -140,11 +140,121 @@ export function computeOptimalLoadoutByStat(clothingItems, statColumnId, opts) {
   return out;
 }
 
-function valuesNearlyEqual(a, b) {
+export function valuesNearlyEqual(a, b) {
   if (typeof a === "number" && typeof b === "number") {
     return Math.abs(a - b) < 1e-9;
   }
   return a === b;
+}
+
+/** Air drain & weight: lower is better (same as Optimize). */
+export function isClothingStatLowerBetter(colDef) {
+  return colDef.id === "clothAirDrain" || colDef.id === "clothTraitWeight";
+}
+
+/**
+ * Per-stat delta (hovered − equipped) for the slot row. Missing values treated as 0 for subtraction.
+ * @param {*} hoveredItem
+ * @param {*} equippedItem — null if slot empty
+ * @returns {{ colId: string, delta: number, signed: string, tone: "good"|"bad"|"neutral" }[]}
+ */
+export function clothingStatDeltasVsEquippedSlot(hoveredItem, equippedItem) {
+  /** @type {{ colId: string, delta: number, signed: string, tone: "good"|"bad"|"neutral" }[]} */
+  const out = [];
+  for (let i = 0; i < CLOTHING_STAT_DEFS.length; i++) {
+    const def = CLOTHING_STAT_DEFS[i];
+    const vH = getClothingStatValueForColumnDef(hoveredItem, def);
+    const vE = equippedItem ? getClothingStatValueForColumnDef(equippedItem, def) : null;
+    const h = vH == null || Number.isNaN(vH) ? 0 : vH;
+    const e = vE == null || Number.isNaN(vE) ? 0 : vE;
+    const delta = h - e;
+    if (valuesNearlyEqual(delta, 0)) {
+      out.push({ colId: def.id, delta: 0, signed: "", tone: "neutral" });
+      continue;
+    }
+    const decimals = computeStatDecimalsFromValues([h, e, delta]);
+    const sign = delta > 0 ? "+" : "-";
+    const num = formatCatalogStatNumber(Math.abs(delta), { decimals });
+    const signed = sign + num;
+    const lower = isClothingStatLowerBetter(def);
+    let tone = "neutral";
+    if (delta > 0) tone = lower ? "bad" : "good";
+    else tone = lower ? "good" : "bad";
+    out.push({ colId: def.id, delta, signed, tone });
+  }
+  return out;
+}
+
+/** @param {string} slotId */
+export function clothingSlotLabel(slotId) {
+  for (let s = 0; s < CLOTHING_SLOTS.length; s++) {
+    if (CLOTHING_SLOTS[s].id === slotId) return CLOTHING_SLOTS[s].label;
+  }
+  return slotId;
+}
+
+/**
+ * Builds the same “vs equipped / empty” stat-diff block as the main catalog recipe tooltip.
+ * @param {HTMLElement} containerEl
+ * @param {*} hoveredItem
+ * @param {*} equippedItem — null means baseline “empty slot”
+ * @param {{ slotLabel: string, getDisplayName?: (item: *) => string }} opts
+ * @returns {boolean} whether any diff content was added
+ */
+export function appendClothingStatDiffTooltip(containerEl, hoveredItem, equippedItem, opts) {
+  opts = opts || {};
+  const getDisplayName =
+    typeof opts.getDisplayName === "function"
+      ? opts.getDisplayName
+      : function (it) {
+          return String(it && it.name);
+        };
+  const slotLabel = opts.slotLabel != null ? String(opts.slotLabel) : "";
+  if (!hoveredItem || hoveredItem.objectType !== "ClothingItem") return false;
+  const deltas = clothingStatDeltasVsEquippedSlot(hoveredItem, equippedItem);
+  const nonZero = deltas.filter(function (d) {
+    return d.signed !== "";
+  });
+  if (nonZero.length === 0) {
+    if (equippedItem && hoveredItem.name === equippedItem.name) return false;
+    return false;
+  }
+
+  if (containerEl.firstChild) {
+    const hr = document.createElement("hr");
+    hr.className = "recipe-tooltip__hr";
+    containerEl.appendChild(hr);
+  }
+  const title = document.createElement("div");
+  title.className = "recipe-tooltip__title";
+  const eqDisp = equippedItem ? getDisplayName(equippedItem) || equippedItem.name : "";
+  title.textContent =
+    "vs " + slotLabel + (equippedItem ? " (" + eqDisp + ")" : " (empty)");
+  containerEl.appendChild(title);
+
+  const wrap = document.createElement("div");
+  wrap.className = "recipe-tooltip__clothing-diff";
+  for (let i = 0; i < nonZero.length; i++) {
+    const d = nonZero[i];
+    const colDef = CLOTHING_STAT_DEFS.find(function (x) {
+      return x.id === d.colId;
+    });
+    const line = document.createElement("div");
+    line.className = "recipe-tooltip__clothing-diff-line";
+    const span = document.createElement("span");
+    span.className =
+      d.tone === "good"
+        ? "recipe-tooltip__diff-good"
+        : d.tone === "bad"
+          ? "recipe-tooltip__diff-bad"
+          : "";
+    span.textContent =
+      d.signed + " " + (colDef ? colDef.label.toLowerCase() : d.colId);
+    line.appendChild(span);
+    wrap.appendChild(line);
+  }
+  containerEl.appendChild(wrap);
+  return true;
 }
 
 /**
@@ -185,28 +295,40 @@ function listItemsMatchingEquippedStatInSlot(
 }
 
 /**
- * How an alternate differs from the equipped piece on other stats (tie column skipped).
- * @param {*} equipped
+ * Per-stat colored lines (alternate vs equipped), same markup as main catalog diff; tie stat column omitted.
+ * @param {HTMLElement} containerEl
  * @param {*} alternate
+ * @param {*} equipped
  * @param {string} tieStatColumnId
- * @returns {string}
  */
-function formatClothingStatDiffsVsEquipped(equipped, alternate, tieStatColumnId) {
-  const parts = [];
-  for (let i = 0; i < CLOTHING_STAT_DEFS.length; i++) {
-    const def = CLOTHING_STAT_DEFS[i];
-    if (def.id === tieStatColumnId) continue;
-    const vEq = getClothingStatValueForColumnDef(equipped, def);
-    const vAlt = getClothingStatValueForColumnDef(alternate, def);
-    if (vEq == null || vAlt == null) continue;
-    const delta = vAlt - vEq;
-    if (valuesNearlyEqual(delta, 0)) continue;
-    const decimals = computeStatDecimalsFromValues([vEq, vAlt, delta]);
-    const sign = delta > 0 ? "+" : "-";
-    const num = formatCatalogStatNumber(Math.abs(delta), { decimals });
-    parts.push(sign + num + " " + def.label.toLowerCase());
+function appendTieRowStatDiffDom(containerEl, alternate, equipped, tieStatColumnId) {
+  const deltas = clothingStatDeltasVsEquippedSlot(alternate, equipped);
+  const nonZero = deltas.filter(function (d) {
+    return d.colId !== tieStatColumnId && d.signed !== "";
+  });
+  if (nonZero.length === 0) return;
+  const wrap = document.createElement("div");
+  wrap.className = "recipe-tooltip__clothing-diff";
+  for (let i = 0; i < nonZero.length; i++) {
+    const d = nonZero[i];
+    const colDef = CLOTHING_STAT_DEFS.find(function (x) {
+      return x.id === d.colId;
+    });
+    const line = document.createElement("div");
+    line.className = "recipe-tooltip__clothing-diff-line";
+    const span = document.createElement("span");
+    span.className =
+      d.tone === "good"
+        ? "recipe-tooltip__diff-good"
+        : d.tone === "bad"
+          ? "recipe-tooltip__diff-bad"
+          : "";
+    span.textContent =
+      d.signed + " " + (colDef ? colDef.label.toLowerCase() : d.colId);
+    line.appendChild(span);
+    wrap.appendChild(line);
   }
-  return parts.join(" ");
+  containerEl.appendChild(wrap);
 }
 
 /** Slot row uses a wrap; tooltips should align to the actual `.item-icon` (img or placeholder). */
@@ -322,6 +444,7 @@ function cellTextForClothingStat(item, colDef, decimals) {
  *   displayName: (item: *) => string,
  *   renderSlotIcon: (wrap: HTMLElement, item: * | null | undefined) => void,
  *   storageKey: string,
+ *   onLoadoutChanged?: () => void,
  * }} opts
  */
 export function mountClothingLoadout(opts) {
@@ -559,6 +682,144 @@ export function mountClothingLoadout(opts) {
   /** @type {Record<string, HTMLButtonElement>} */
   const slotLockBtns = {};
 
+  /** @type {Record<string, HTMLTableRowElement | undefined>} */
+  const statRowBySlotId = Object.create(null);
+  let plannerHoverSlotId = null;
+  /** @type {AbortController | null} */
+  let statRowHoverAbort = null;
+
+  function plannerRelatedSlotGroup(slotId, rt) {
+    if (!rt || rt.nodeType !== 1) return false;
+    const box = slotEls[slotId];
+    if (box && box.contains(rt)) return true;
+    const tr = statRowBySlotId[slotId];
+    if (tr && tr.contains(rt)) return true;
+    if (tieTooltipEl && tieTooltipEl.contains(rt)) return true;
+    return false;
+  }
+
+  function restorePlannerSlotStatRow(tr) {
+    const stash = tr._plannerStash;
+    if (!stash) return;
+    for (let j = 0; j < stash.length; j++) {
+      const st = stash[j];
+      st.td.textContent = st.text;
+      st.td.className = st.className;
+    }
+    delete tr._plannerStash;
+    tr.removeAttribute("data-planner-delta");
+  }
+
+  function applyPlannerSlotStatRow(slotId) {
+    const tr = statRowBySlotId[slotId];
+    if (!tr) return;
+    const nm = currentLoadout()[slotId];
+    const item = nm ? getItemByName(nm) : null;
+    if (!item) return;
+    if (tr.dataset.plannerDelta === "1") restorePlannerSlotStatRow(tr);
+    const deltas = clothingStatDeltasVsEquippedSlot(item, null);
+    const byCol = Object.create(null);
+    for (let i = 0; i < deltas.length; i++) {
+      byCol[deltas[i].colId] = deltas[i];
+    }
+    const stash = [];
+    const cells = tr.querySelectorAll("td[data-col-id]");
+    for (let i = 0; i < cells.length; i++) {
+      const td = cells[i];
+      const cid = td.dataset.colId;
+      if (!cid) continue;
+      stash.push({ td: td, text: td.textContent, className: td.className });
+      const d = byCol[cid];
+      if (!d || d.signed === "") {
+        td.textContent = "";
+      } else {
+        td.textContent = d.signed;
+        td.className =
+          td.className +
+          (d.tone === "good"
+            ? " clothing-cell--delta-good"
+            : d.tone === "bad"
+              ? " clothing-cell--delta-bad"
+              : "");
+      }
+    }
+    if (stash.length === 0) return;
+    tr._plannerStash = stash;
+    tr.dataset.plannerDelta = "1";
+  }
+
+  function setPlannerSlotHover(slotId) {
+    if (plannerHoverSlotId === slotId) return;
+    if (plannerHoverSlotId != null) {
+      const prevTr = statRowBySlotId[plannerHoverSlotId];
+      if (prevTr) restorePlannerSlotStatRow(prevTr);
+    }
+    plannerHoverSlotId = slotId;
+    applyPlannerSlotStatRow(slotId);
+  }
+
+  function clearPlannerSlotHover(slotId) {
+    if (plannerHoverSlotId !== slotId) return;
+    plannerHoverSlotId = null;
+    const tr = statRowBySlotId[slotId];
+    if (tr) restorePlannerSlotStatRow(tr);
+  }
+
+  function attachPlannerStatRowHoverListeners() {
+    if (statRowHoverAbort) statRowHoverAbort.abort();
+    statRowHoverAbort = new AbortController();
+    const signal = statRowHoverAbort.signal;
+    for (let s = 0; s < CLOTHING_SLOTS.length; s++) {
+      const sid = CLOTHING_SLOTS[s].id;
+      const tr = statRowBySlotId[sid];
+      if (!tr) continue;
+      tr.addEventListener(
+        "mouseenter",
+        function () {
+          setPlannerSlotHover(sid);
+        },
+        { signal: signal, passive: true }
+      );
+      tr.addEventListener(
+        "mouseleave",
+        function (e) {
+          const rt = e.relatedTarget;
+          if (plannerRelatedSlotGroup(sid, rt)) return;
+          clearPlannerSlotHover(sid);
+        },
+        { signal: signal, passive: true }
+      );
+    }
+  }
+
+  /**
+   * Full stat diff vs empty slot (same markup as the main catalog recipe tooltip).
+   */
+  function tryShowSlotStatDiffTooltip(e, slotId, wrapEl) {
+    const nm = currentLoadout()[slotId];
+    const equipped = nm ? getItemByName(nm) : null;
+    if (!equipped) {
+      hideTieTooltip();
+      return;
+    }
+    tieTooltipEl.innerHTML = "";
+    const ok = appendClothingStatDiffTooltip(tieTooltipEl, equipped, null, {
+      slotLabel: clothingSlotLabel(slotId),
+      getDisplayName: displayName,
+    });
+    if (ok) {
+      tieTooltipEl.hidden = false;
+      positionLoadoutTieTooltip(
+        tieTooltipEl,
+        e.clientX,
+        e.clientY,
+        getClothingSlotIconAnchorEl(wrapEl)
+      );
+    } else {
+      hideTieTooltip();
+    }
+  }
+
   function currentLoadoutLocks() {
     return loadoutSlotLocks[activeTab];
   }
@@ -646,121 +907,104 @@ export function mountClothingLoadout(opts) {
         "mouseenter",
         function (e) {
           cancelHideTieTooltip();
-          if (!activeOptimizeStatId) {
-            hideTieTooltip();
-            return;
-          }
-          const nm = currentLoadout()[slotId];
-          if (!nm) {
-            hideTieTooltip();
-            return;
-          }
-          const equipped = getItemByName(nm);
-          if (!equipped) {
-            hideTieTooltip();
-            return;
-          }
-          const tied = listItemsMatchingEquippedStatInSlot(
-            slotId,
-            activeOptimizeStatId,
-            equipped,
-            clothingItems(),
-            displayName
-          ).filter(function (it) {
-            return it && it.name !== equipped.name;
-          });
-          const colDef = CLOTHING_STAT_DEFS.find(function (d) {
-            return d.id === activeOptimizeStatId;
-          });
-          if (!colDef) {
-            hideTieTooltip();
-            return;
-          }
-          if (!tied.length) {
-            hideTieTooltip();
-            return;
-          }
-          const vEq = getClothingStatValueForColumnDef(equipped, colDef);
-          tieTooltipEl.innerHTML = "";
           tieTooltipAnchorWrap = wrapEl;
+          let showedTieTooltip = false;
+          if (activeOptimizeStatId) {
+            const nm = currentLoadout()[slotId];
+            if (nm) {
+              const equipped = getItemByName(nm);
+              if (equipped) {
+                const tied = listItemsMatchingEquippedStatInSlot(
+                  slotId,
+                  activeOptimizeStatId,
+                  equipped,
+                  clothingItems(),
+                  displayName
+                ).filter(function (it) {
+                  return it && it.name !== equipped.name;
+                });
+                const colDef = CLOTHING_STAT_DEFS.find(function (d) {
+                  return d.id === activeOptimizeStatId;
+                });
+                if (colDef && tied.length) {
+                  const vEq = getClothingStatValueForColumnDef(equipped, colDef);
+                  tieTooltipEl.innerHTML = "";
 
-          const title = document.createElement("div");
-          title.className = "recipe-tooltip__title";
-          title.textContent =
-            "Same " +
-            colDef.label +
-            " — " +
-            tied.length +
-            " tie" +
-            (tied.length === 1 ? "" : "s") +
-            (vEq != null ? " (value " + String(vEq) + ")" : "");
+                  const title = document.createElement("div");
+                  title.className = "recipe-tooltip__title";
+                  title.textContent =
+                    "Same " +
+                    colDef.label +
+                    " — " +
+                    tied.length +
+                    " tie" +
+                    (tied.length === 1 ? "" : "s") +
+                    (vEq != null ? " (value " + String(vEq) + ")" : "");
 
-          const hint = document.createElement("div");
-          hint.className = "recipe-tooltip__out";
-          hint.textContent = "Click a row to equip that item in this slot.";
+                  const hint = document.createElement("div");
+                  hint.className = "recipe-tooltip__out";
+                  hint.textContent = "Click a row to equip that item in this slot.";
 
-          tieTooltipEl.appendChild(title);
-          tieTooltipEl.appendChild(hint);
+                  tieTooltipEl.appendChild(title);
+                  tieTooltipEl.appendChild(hint);
 
-          const ul = document.createElement("ul");
-          ul.className = "recipe-tooltip__list";
-          for (let t = 0; t < tied.length; t++) {
-            const it = tied[t];
-            const li = document.createElement("li");
-            li.className = "recipe-tooltip__row clothing-loadout__tie-row";
-            li.setAttribute("role", "button");
-            li.tabIndex = 0;
-            const slotIdForRow = slotId;
-            const itemRef = it;
-            li.addEventListener("click", function (ev) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              setSlot(slotIdForRow, itemRef.name);
-              hideTieTooltip();
-            });
-            li.addEventListener("keydown", function (ev) {
-              if (ev.key === "Enter" || ev.key === " ") {
-                ev.preventDefault();
-                setSlot(slotIdForRow, itemRef.name);
-                hideTieTooltip();
+                  const ul = document.createElement("ul");
+                  ul.className = "recipe-tooltip__list";
+                  for (let t = 0; t < tied.length; t++) {
+                    const it = tied[t];
+                    const li = document.createElement("li");
+                    li.className = "recipe-tooltip__row clothing-loadout__tie-row";
+                    li.setAttribute("role", "button");
+                    li.tabIndex = 0;
+                    const slotIdForRow = slotId;
+                    const itemRef = it;
+                    li.addEventListener("click", function (ev) {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      setSlot(slotIdForRow, itemRef.name);
+                      hideTieTooltip();
+                    });
+                    li.addEventListener("keydown", function (ev) {
+                      if (ev.key === "Enter" || ev.key === " ") {
+                        ev.preventDefault();
+                        setSlot(slotIdForRow, itemRef.name);
+                        hideTieTooltip();
+                      }
+                    });
+
+                    const iconWrapRow = document.createElement("div");
+                    iconWrapRow.className = "recipe-tooltip__ing-icon";
+                    iconWrapRow.dataset.itemName = it.name;
+                    renderSlotIcon(iconWrapRow, it);
+
+                    const textCol = document.createElement("div");
+                    textCol.className = "clothing-loadout__tie-row-text";
+                    const nameSpan = document.createElement("span");
+                    nameSpan.className = "recipe-tooltip__ing-name";
+                    nameSpan.textContent = displayName(it) || it.name || "";
+                    textCol.appendChild(nameSpan);
+                    appendTieRowStatDiffDom(textCol, it, equipped, activeOptimizeStatId);
+
+                    li.appendChild(iconWrapRow);
+                    li.appendChild(textCol);
+                    ul.appendChild(li);
+                  }
+                  tieTooltipEl.appendChild(ul);
+                  tieTooltipEl.hidden = false;
+                  positionLoadoutTieTooltip(
+                    tieTooltipEl,
+                    e.clientX,
+                    e.clientY,
+                    getClothingSlotIconAnchorEl(wrapEl)
+                  );
+                  showedTieTooltip = true;
+                }
               }
-            });
-
-            const iconWrapRow = document.createElement("div");
-            iconWrapRow.className = "recipe-tooltip__ing-icon";
-            iconWrapRow.dataset.itemName = it.name;
-            renderSlotIcon(iconWrapRow, it);
-
-            const textCol = document.createElement("div");
-            textCol.className = "clothing-loadout__tie-row-text";
-            const nameSpan = document.createElement("span");
-            nameSpan.className = "recipe-tooltip__ing-name";
-            nameSpan.textContent = displayName(it) || it.name || "";
-            textCol.appendChild(nameSpan);
-            const diffLine = formatClothingStatDiffsVsEquipped(
-              equipped,
-              it,
-              activeOptimizeStatId
-            );
-            if (diffLine) {
-              const diffSpan = document.createElement("span");
-              diffSpan.className = "clothing-loadout__tie-diff";
-              diffSpan.textContent = diffLine;
-              textCol.appendChild(diffSpan);
             }
-
-            li.appendChild(iconWrapRow);
-            li.appendChild(textCol);
-            ul.appendChild(li);
           }
-          tieTooltipEl.appendChild(ul);
-          tieTooltipEl.hidden = false;
-          positionLoadoutTieTooltip(
-            tieTooltipEl,
-            e.clientX,
-            e.clientY,
-            getClothingSlotIconAnchorEl(wrapEl)
-          );
+          if (!showedTieTooltip) {
+            tryShowSlotStatDiffTooltip(e, slotId, wrapEl);
+          }
         },
         { passive: true }
       );
@@ -790,12 +1034,29 @@ export function mountClothingLoadout(opts) {
     })(def.id, iconWrap);
   }
 
+  for (let s = 0; s < CLOTHING_SLOTS.length; s++) {
+    const sid = CLOTHING_SLOTS[s].id;
+    slotEls[sid].addEventListener("mouseenter", function () {
+      setPlannerSlotHover(sid);
+    });
+    slotEls[sid].addEventListener("mouseleave", function (e) {
+      const rt = e.relatedTarget;
+      if (plannerRelatedSlotGroup(sid, rt)) return;
+      clearPlannerSlotHover(sid);
+    });
+  }
+
   refreshAllLockButtonVisuals();
 
   tieTooltipEl.addEventListener("mouseenter", cancelHideTieTooltip);
   tieTooltipEl.addEventListener("mouseleave", function (ev) {
     const rt = ev.relatedTarget;
     if (rt && tieTooltipAnchorWrap && tieTooltipAnchorWrap.contains(rt)) return;
+    if (rt && typeof rt.closest === "function" && tieTooltipAnchorWrap) {
+      const anchorSlot = tieTooltipAnchorWrap.closest(".clothing-loadout__slot");
+      const rtSlot = rt.closest(".clothing-loadout__slot");
+      if (anchorSlot && rtSlot && anchorSlot === rtSlot) return;
+    }
     scheduleHideTieTooltip();
   });
 
@@ -1132,6 +1393,11 @@ export function mountClothingLoadout(opts) {
   }
 
   function refreshSlotsAndTotals() {
+    if (plannerHoverSlotId != null) {
+      const prevTr = statRowBySlotId[plannerHoverSlotId];
+      if (prevTr) restorePlannerSlotStatRow(prevTr);
+      plannerHoverSlotId = null;
+    }
     refreshAllLockButtonVisuals();
     for (let s = 0; s < SLOT_IDS.length; s++) {
       refreshSlotVisual(SLOT_IDS[s]);
@@ -1191,9 +1457,12 @@ export function mountClothingLoadout(opts) {
         const dec = decimalsById[colDef.id];
         const td = document.createElement("td");
         td.className = "num clothing-loadout__td-num";
+        td.dataset.colId = colDef.id;
         td.textContent = item ? cellTextForClothingStat(item, colDef, dec) : "";
         tr.appendChild(td);
       }
+      tr.dataset.slotId = sid;
+      statRowBySlotId[sid] = tr;
       statTbody.appendChild(tr);
     }
 
@@ -1214,7 +1483,9 @@ export function mountClothingLoadout(opts) {
       trFoot.appendChild(td);
     }
     statTfoot.appendChild(trFoot);
+    attachPlannerStatRowHoverListeners();
     refreshLoadoutTabPreviews();
+    if (typeof opts.onLoadoutChanged === "function") opts.onLoadoutChanged();
   }
 
   function setActiveTab(idx) {
@@ -1243,5 +1514,9 @@ export function mountClothingLoadout(opts) {
 
   return {
     refresh: refreshSlotsAndTotals,
+    getSlotItemName: function (slotId) {
+      const L = currentLoadout();
+      return L[slotId] || null;
+    },
   };
 }

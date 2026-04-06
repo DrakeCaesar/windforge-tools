@@ -29,6 +29,8 @@
   --surface-hover: color-mix(in srgb, var(--text) 8%, transparent);
   --shadow-pop: color-mix(in srgb, var(--bg) 50%, transparent);
   --recipe-ing-bg: color-mix(in srgb, var(--bg) 65%, transparent);
+  --stat-delta-good: #6ecf8e;
+  --stat-delta-bad: #e87878;
   --table-scrollbar-gutter-fixed: 10px;
   --control-h: 32px;
 
@@ -1345,6 +1347,35 @@ main {
   white-space: nowrap;
 }
 
+.recipe-tooltip__clothing-diff {
+  font: var(--text-12) var(--font-family-ui);
+  margin-top: 4px;
+}
+
+.recipe-tooltip__clothing-diff-line + .recipe-tooltip__clothing-diff-line {
+  margin-top: 2px;
+}
+
+.recipe-tooltip__diff-good {
+  color: var(--stat-delta-good);
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-tooltip__diff-bad {
+  color: var(--stat-delta-bad);
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-table td.num.clothing-cell--delta-good {
+  color: var(--stat-delta-good);
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-table td.num.clothing-cell--delta-bad {
+  color: var(--stat-delta-bad);
+  font-variant-numeric: tabular-nums;
+}
+
 .recipe-tooltip__ing-qty {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -1909,11 +1940,11 @@ body.windforge-clothing-icon-dragging .clothing-loadout__slots-dropzone {
   gap: 3px;
 }
 
-.clothing-loadout__tie-tooltip .clothing-loadout__tie-diff {
+/* Per-stat lines use `.recipe-tooltip__clothing-diff` + good/bad (same as main catalog tooltip). */
+.clothing-loadout__tie-tooltip .clothing-loadout__tie-row-text .recipe-tooltip__clothing-diff {
+  margin-top: 0;
   font: var(--text-10) var(--font-family-ui);
-  color: var(--muted);
   line-height: 1.35;
-  white-space: normal;
 }
 
 .clothing-loadout__tie-tooltip .clothing-loadout__tie-row:hover {

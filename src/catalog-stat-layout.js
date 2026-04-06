@@ -1,4 +1,8 @@
-import { formatCatalogStatNumber, computeStatDecimalsFromValues } from "./catalog-stat-format.js";
+import {
+  formatCatalogStatNumber,
+  computeStatDecimalsFromValues,
+  measureCatalogStatTextWidthForSignedDelta,
+} from "./catalog-stat-format.js";
 
 const COL_PX_MIN = 40;
 const COL_PX_MAX = 96;
@@ -61,7 +65,7 @@ export function measureClothingLoadoutColumnMetrics(
       if (v == null || typeof v !== "number" || Number.isNaN(v)) continue;
       const txt = formatCatalogStatNumber(v, { hideZero: true, decimals: dec });
       if (!txt) continue;
-      const w = ctx.measureText(txt).width;
+      const w = measureCatalogStatTextWidthForSignedDelta(ctx, txt);
       if (w > maxTextPx) maxTextPx = w;
     }
     if (footerSumByColId && Object.prototype.hasOwnProperty.call(footerSumByColId, colId)) {
@@ -69,7 +73,7 @@ export function measureClothingLoadoutColumnMetrics(
       if (typeof sn === "number" && !Number.isNaN(sn)) {
         const sumTxt = formatCatalogStatNumber(sn, { hideZero: false, decimals: dec });
         if (sumTxt && sumTxt !== "—") {
-          const w = ctx.measureText(sumTxt).width;
+          const w = measureCatalogStatTextWidthForSignedDelta(ctx, sumTxt);
           if (w > maxTextPx) maxTextPx = w;
         }
       }
@@ -82,7 +86,7 @@ export function measureClothingLoadoutColumnMetrics(
       if (typeof tn === "number" && !Number.isNaN(tn)) {
         const tTxt = formatCatalogStatNumber(tn, { hideZero: false, decimals: dec });
         if (tTxt && tTxt !== "—") {
-          const w = ctx.measureText(tTxt).width;
+          const w = measureCatalogStatTextWidthForSignedDelta(ctx, tTxt);
           if (w > maxTextPx) maxTextPx = w;
         }
       }

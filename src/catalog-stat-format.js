@@ -47,3 +47,21 @@ export function computeStatDecimalsFromValues(values) {
   }
   return keepThousandths ? 3 : keepHundredths ? 2 : keepTenths ? 1 : 0;
 }
+
+/**
+ * Pixel width for formatted stat text when it may be shown with a leading "+" (clothing planner
+ * deltas vs equipped / empty). Positive catalog cells omit "+"; delta mode uses "+"/"-".
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} txt — output of {@link formatCatalogStatNumber} (not "—")
+ * @returns {number}
+ */
+export function measureCatalogStatTextWidthForSignedDelta(ctx, txt) {
+  if (!txt || txt === "—") return 0;
+  let w = ctx.measureText(txt).width;
+  const first = txt.charAt(0);
+  if (first !== "-" && first !== "−") {
+    w = Math.max(w, ctx.measureText("+" + txt).width);
+  }
+  return w;
+}
