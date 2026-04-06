@@ -636,6 +636,7 @@ export function mountClothingLoadout(opts) {
       clearTimeout(tieTooltipHideTimer);
       tieTooltipHideTimer = null;
     }
+    restorePlannerTieRowOverlay();
     tieTooltipAnchorWrap = null;
     tieTooltipEl.hidden = true;
     tieTooltipEl.innerHTML = "";
@@ -684,40 +685,32 @@ export function mountClothingLoadout(opts) {
 
   /** @type {Record<string, HTMLTableRowElement | undefined>} */
   const statRowBySlotId = Object.create(null);
-  let plannerHoverSlotId = null;
-  /** @type {AbortController | null} */
-  let statRowHoverAbort = null;
+  /** @type {HTMLTableRowElement | null} — planner row showing tie-hover deltas */
+  let tieHoverPlannerRowTr = null;
 
-  function plannerRelatedSlotGroup(slotId, rt) {
-    if (!rt || rt.nodeType !== 1) return false;
-    const box = slotEls[slotId];
-    if (box && box.contains(rt)) return true;
-    const tr = statRowBySlotId[slotId];
-    if (tr && tr.contains(rt)) return true;
-    if (tieTooltipEl && tieTooltipEl.contains(rt)) return true;
-    return false;
-  }
-
-  function restorePlannerSlotStatRow(tr) {
-    const stash = tr._plannerStash;
+  function restorePlannerTieRowOverlay() {
+    const tr = tieHoverPlannerRowTr;
+    if (!tr) return;
+    const stash = tr._tiePlannerStash;
     if (!stash) return;
     for (let j = 0; j < stash.length; j++) {
       const st = stash[j];
       st.td.textContent = st.text;
       st.td.className = st.className;
     }
-    delete tr._plannerStash;
-    tr.removeAttribute("data-planner-delta");
+    delete tr._tiePlannerStash;
+    tr.removeAttribute("data-tie-hover");
+    tieHoverPlannerRowTr = null;
   }
 
-  function applyPlannerSlotStatRow(slotId) {
+  /**
+   * Show signed stat deltas (alternate vs equipped) on this slot’s row — only while hovering a tie tooltip row.
+   */
+  function applyPlannerTieRowOverlay(slotId, alternate, equipped) {
+    restorePlannerTieRowOverlay();
     const tr = statRowBySlotId[slotId];
-    if (!tr) return;
-    const nm = currentLoadout()[slotId];
-    const item = nm ? getItemByName(nm) : null;
-    if (!item) return;
-    if (tr.dataset.plannerDelta === "1") restorePlannerSlotStatRow(tr);
-    const deltas = clothingStatDeltasVsEquippedSlot(item, null);
+    if (!tr || !alternate || !equipped) return;
+    const deltas = clothingStatDeltasVsEquippedSlot(alternate, equipped);
     const byCol = Object.create(null);
     for (let i = 0; i < deltas.length; i++) {
       byCol[deltas[i].colId] = deltas[i];
@@ -744,52 +737,9 @@ export function mountClothingLoadout(opts) {
       }
     }
     if (stash.length === 0) return;
-    tr._plannerStash = stash;
-    tr.dataset.plannerDelta = "1";
-  }
-
-  function setPlannerSlotHover(slotId) {
-    if (plannerHoverSlotId === slotId) return;
-    if (plannerHoverSlotId != null) {
-      const prevTr = statRowBySlotId[plannerHoverSlotId];
-      if (prevTr) restorePlannerSlotStatRow(prevTr);
-    }
-    plannerHoverSlotId = slotId;
-    applyPlannerSlotStatRow(slotId);
-  }
-
-  function clearPlannerSlotHover(slotId) {
-    if (plannerHoverSlotId !== slotId) return;
-    plannerHoverSlotId = null;
-    const tr = statRowBySlotId[slotId];
-    if (tr) restorePlannerSlotStatRow(tr);
-  }
-
-  function attachPlannerStatRowHoverListeners() {
-    if (statRowHoverAbort) statRowHoverAbort.abort();
-    statRowHoverAbort = new AbortController();
-    const signal = statRowHoverAbort.signal;
-    for (let s = 0; s < CLOTHING_SLOTS.length; s++) {
-      const sid = CLOTHING_SLOTS[s].id;
-      const tr = statRowBySlotId[sid];
-      if (!tr) continue;
-      tr.addEventListener(
-        "mouseenter",
-        function () {
-          setPlannerSlotHover(sid);
-        },
-        { signal: signal, passive: true }
-      );
-      tr.addEventListener(
-        "mouseleave",
-        function (e) {
-          const rt = e.relatedTarget;
-          if (plannerRelatedSlotGroup(sid, rt)) return;
-          clearPlannerSlotHover(sid);
-        },
-        { signal: signal, passive: true }
-      );
-    }
+    tr._tiePlannerStash = stash;
+    tr.dataset.tieHover = "1";
+    tieHoverPlannerRowTr = tr;
   }
 
   /**
@@ -987,6 +937,22 @@ export function mountClothingLoadout(opts) {
 
                     li.appendChild(iconWrapRow);
                     li.appendChild(textCol);
+                    li.addEventListener(
+                      "mouseenter",
+                      function () {
+                        applyPlannerTieRowOverlay(slotIdForRow, itemRef, equipped);
+                      },
+                      { passive: true }
+                    );
+                    li.addEventListener(
+                      "mouseleave",
+                      function (e) {
+                        const rt = e.relatedTarget;
+                        if (rt && li.contains(rt)) return;
+                        restorePlannerTieRowOverlay();
+                      },
+                      { passive: true }
+                    );
                     ul.appendChild(li);
                   }
                   tieTooltipEl.appendChild(ul);
@@ -1032,18 +998,6 @@ export function mountClothingLoadout(opts) {
         { passive: true }
       );
     })(def.id, iconWrap);
-  }
-
-  for (let s = 0; s < CLOTHING_SLOTS.length; s++) {
-    const sid = CLOTHING_SLOTS[s].id;
-    slotEls[sid].addEventListener("mouseenter", function () {
-      setPlannerSlotHover(sid);
-    });
-    slotEls[sid].addEventListener("mouseleave", function (e) {
-      const rt = e.relatedTarget;
-      if (plannerRelatedSlotGroup(sid, rt)) return;
-      clearPlannerSlotHover(sid);
-    });
   }
 
   refreshAllLockButtonVisuals();
@@ -1393,11 +1347,7 @@ export function mountClothingLoadout(opts) {
   }
 
   function refreshSlotsAndTotals() {
-    if (plannerHoverSlotId != null) {
-      const prevTr = statRowBySlotId[plannerHoverSlotId];
-      if (prevTr) restorePlannerSlotStatRow(prevTr);
-      plannerHoverSlotId = null;
-    }
+    restorePlannerTieRowOverlay();
     refreshAllLockButtonVisuals();
     for (let s = 0; s < SLOT_IDS.length; s++) {
       refreshSlotVisual(SLOT_IDS[s]);
@@ -1461,7 +1411,6 @@ export function mountClothingLoadout(opts) {
         td.textContent = item ? cellTextForClothingStat(item, colDef, dec) : "";
         tr.appendChild(td);
       }
-      tr.dataset.slotId = sid;
       statRowBySlotId[sid] = tr;
       statTbody.appendChild(tr);
     }
@@ -1483,7 +1432,6 @@ export function mountClothingLoadout(opts) {
       trFoot.appendChild(td);
     }
     statTfoot.appendChild(trFoot);
-    attachPlannerStatRowHoverListeners();
     refreshLoadoutTabPreviews();
     if (typeof opts.onLoadoutChanged === "function") opts.onLoadoutChanged();
   }
