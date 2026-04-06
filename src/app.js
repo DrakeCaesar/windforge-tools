@@ -2964,12 +2964,7 @@ function createSortCacheWorker() {
   function matchesQuery(item, q) {
     if (!q) return true;
     const s = q.toLowerCase();
-    const hay = [
-      item.name,
-      item.objectType,
-      displayName(item),
-      description(item),
-    ]
+    const hay = [item.name, displayName(item)]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
