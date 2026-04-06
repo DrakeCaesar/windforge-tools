@@ -117,7 +117,7 @@ const COLUMNS = [
   },
   {
     id: "clothTraitElemRes",
-    label: "Elem res",
+    label: "Heat res",
     sortable: true,
     type: "number",
     clothingTraitKey: "elementalResistance",
