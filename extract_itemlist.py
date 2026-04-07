@@ -336,6 +336,12 @@ def parse_recipe_books(crafting_items_lua: Path) -> List[Dict[str, Any]]:
 
 def parse_merchants(data_dir: Path, data_root: Path) -> Dict[str, List[str]]:
     """NPC merchants: storeItemType -> town names."""
+    def title_case_town(name: str) -> str:
+        parts = [p for p in re.split(r"[_\-\s]+", name.strip()) if p]
+        if not parts:
+            return name.strip()
+        return " ".join(p[:1].upper() + p[1:] for p in parts)
+
     npc_root = data_dir / "objects" / "characters" / "npc"
     if not npc_root.is_dir():
         return {}
@@ -348,7 +354,7 @@ def parse_merchants(data_dir: Path, data_root: Path) -> Dict[str, List[str]]:
         try:
             idx = parts.index("npc")
             if idx + 1 < len(parts):
-                town = parts[idx + 1]
+                town = title_case_town(parts[idx + 1])
         except ValueError:
             pass
         body = p.read_text(encoding="utf-8", errors="replace")

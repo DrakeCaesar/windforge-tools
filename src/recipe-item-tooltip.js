@@ -11,15 +11,15 @@ function text(v, fallback = "") {
 
 function appendRow(ul, leftText, rightText) {
   const li = document.createElement("li");
-  li.className = "recipe-tooltip__row";
+  li.className = "recipe-tooltip__row recipe-tooltip__row--recipe-source";
 
   const nameSpan = document.createElement("span");
-  nameSpan.className = "recipe-tooltip__ing-name";
+  nameSpan.className = "recipe-tooltip__ing-name recipe-tooltip__ing-name--recipe-source";
   nameSpan.textContent = leftText;
   li.appendChild(nameSpan);
 
   const rightSpan = document.createElement("span");
-  rightSpan.className = "recipe-tooltip__ing-qty";
+  rightSpan.className = "recipe-tooltip__ing-qty recipe-tooltip__ing-qty--recipe-source";
   rightSpan.textContent = rightText;
   li.appendChild(rightSpan);
 
