@@ -20,6 +20,7 @@ import {
   measureCatalogStatTextWidthForSignedDelta,
 } from "./catalog-stat-format.js";
 import { appendDiagonalHeaderLabel } from "./diagonal-table-header.js";
+import { appendRecipeItemTooltipSection } from "./recipe-item-tooltip.js";
 
 function createSortCacheWorker() {
   return new Worker(new URL("./sort-cache-worker.js", import.meta.url), { type: "module" });
@@ -38,6 +39,8 @@ function createSortCacheWorker() {
 
   /** Internal item name → item row (for ingredient icons). */
   const itemByName = new Map();
+  /** RecipeItem internal name -> recipe source acquisition payload. */
+  const recipeItemSourcesByItemName = new Map();
 
   /** Stable index in `data.ItemList` by internal name (precomputed sort permutations). */
   const itemIndexByName = new Map();
@@ -1970,9 +1973,16 @@ function createSortCacheWorker() {
   async function fillRecipeTooltipInto(containerEl, item, layerIndex) {
     const recipes = data.recipesByProduct[item.name];
     const usedIn = data.recipesByIngredient[item.name];
+    const recipeItemSource = recipeItemSourcesByItemName.get(item.name);
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
-    if (!hasCraft && !hasUsed) {
+    const hasRecipeItemSources =
+      !!recipeItemSource &&
+      ((Array.isArray(recipeItemSource.acquisitionLocations) &&
+        recipeItemSource.acquisitionLocations.length > 0) ||
+        (Array.isArray(recipeItemSource.unlockRecipeScripts) &&
+          recipeItemSource.unlockRecipeScripts.length > 0));
+    if (!hasCraft && !hasUsed && !hasRecipeItemSources) {
       containerEl.innerHTML = "";
       return false;
     }
@@ -2157,6 +2167,8 @@ function createSortCacheWorker() {
       containerEl.appendChild(ulUsed);
     }
 
+    appendRecipeItemTooltipSection(containerEl, item, recipeItemSourcesByItemName);
+
     resetRecipeFlyoutScrollAfterContentChange(containerEl);
     return true;
   }
@@ -2170,11 +2182,18 @@ function createSortCacheWorker() {
   function bindRecipeHover(targetEl, item) {
     const recipes = data.recipesByProduct[item.name];
     const usedIn = data.recipesByIngredient[item.name];
+    const recipeItemSource = recipeItemSourcesByItemName.get(item.name);
     const hasCraft = recipes && recipes.length > 0;
     const hasUsed = usedIn && usedIn.length > 0;
+    const hasRecipeItemSources =
+      !!recipeItemSource &&
+      ((Array.isArray(recipeItemSource.acquisitionLocations) &&
+        recipeItemSource.acquisitionLocations.length > 0) ||
+        (Array.isArray(recipeItemSource.unlockRecipeScripts) &&
+          recipeItemSource.unlockRecipeScripts.length > 0));
     const hasPlannerDiff =
       item.objectType === CLOTHING_ITEM_OBJECT_TYPE && getClothingSlotId(item);
-    if (!hasCraft && !hasUsed && !hasPlannerDiff) return;
+    if (!hasCraft && !hasUsed && !hasPlannerDiff && !hasRecipeItemSources) return;
 
     if (targetEl && targetEl.dataset && targetEl.dataset.recipeHoverBound === "1") return;
     if (targetEl && targetEl.dataset) targetEl.dataset.recipeHoverBound = "1";
@@ -2183,7 +2202,7 @@ function createSortCacheWorker() {
     targetEl.classList.add("item-icon--recipe");
     targetEl.setAttribute(
       "aria-label",
-      hasCraft || hasUsed
+      hasCraft || hasUsed || hasRecipeItemSources
         ? "Craft / usage — hover to show recipe ingredients and where this item is used"
         : "Clothing — hover to compare stats with the equipped piece in the loadout planner"
     );
@@ -5789,6 +5808,10 @@ function createSortCacheWorker() {
     }
     const itemsPayload = catalog.itemlist;
     const blocksPayload = catalog.sharedblockinfo;
+    const recipeSourcesPayload =
+      catalog.recipeSources && typeof catalog.recipeSources === "object"
+        ? catalog.recipeSources
+        : null;
 
     data = itemsPayload;
     // Strict: required keys must exist in the payload.
@@ -5804,6 +5827,22 @@ function createSortCacheWorker() {
       const it = data.ItemList[i];
       if (it && typeof it.name === "string" && it.name) {
         itemByName.set(it.name, it);
+      }
+    }
+    recipeItemSourcesByItemName.clear();
+    const recipeItemsByName =
+      recipeSourcesPayload &&
+      recipeSourcesPayload.recipeItems &&
+      typeof recipeSourcesPayload.recipeItems === "object"
+        ? recipeSourcesPayload.recipeItems
+        : null;
+    if (recipeItemsByName) {
+      const names = Object.keys(recipeItemsByName);
+      for (let i = 0; i < names.length; i++) {
+        const k = names[i];
+        const row = recipeItemsByName[k];
+        if (!k || !row || typeof row !== "object") continue;
+        recipeItemSourcesByItemName.set(k, row);
       }
     }
     sortCacheBuildEpoch++;

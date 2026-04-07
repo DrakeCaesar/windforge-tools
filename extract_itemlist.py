@@ -25,7 +25,6 @@ import gzip
 import hashlib
 import json
 import re
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -492,6 +491,12 @@ def build_recipe_sources_payload(
     worldmap_temples = parse_worldmap_temples(worldmap_path) if worldmap_path.is_file() else []
     loot_hints = parse_loot_recipe_book_hints(loot_path) if loot_path.is_file() else []
 
+    loot_by_store_type: Dict[str, List[Dict[str, Any]]] = {}
+    for hint in loot_hints:
+        st = hint.get("storeItemType")
+        if isinstance(st, str) and st:
+            loot_by_store_type.setdefault(st, []).append(hint)
+
     by_recipe: Dict[str, Dict[str, Any]] = {}
     for rs in recipe_sets:
         by_recipe[rs["baseName"]] = {
@@ -569,6 +574,62 @@ def build_recipe_sources_payload(
                     {"removeItem": pay.get("removeItem"), "script": pay.get("script")},
                 )
 
+    # Direct item-level mapping for RecipeItem entries from craftingitems.lua.
+    # This maps "book item" -> concrete acquisition locations/signals.
+    recipe_items: Dict[str, Dict[str, Any]] = {}
+    for b in recipe_books:
+        item_name = str(b.get("itemName") or "")
+        recipe_name = str(b.get("recipeName") or "")
+        if not item_name or not recipe_name:
+            continue
+
+        store_item_type = b.get("storeItemType")
+        shops = merchants_by_store_type.get(str(store_item_type), []) if store_item_type else []
+        loot_rows = loot_by_store_type.get(str(store_item_type), []) if store_item_type else []
+        tablet_rows = [
+            p
+            for p in tablet_payments
+            if str(p.get("removeItem") or "") == item_name
+        ]
+
+        acquisition_locations: List[Dict[str, Any]] = []
+        for town in shops:
+            acquisition_locations.append(
+                {
+                    "kind": "shop_pool",
+                    "town": town,
+                    "storeItemType": store_item_type,
+                    "note": "Merchant inventory is pooled/random per storeItemType.",
+                }
+            )
+        for row in loot_rows:
+            acquisition_locations.append(
+                {
+                    "kind": "loot_pool",
+                    "storeItemType": row.get("storeItemType"),
+                    "criteria": row.get("criteria"),
+                    "weight": row.get("weight"),
+                }
+            )
+        for pay in tablet_rows:
+            acquisition_locations.append(
+                {
+                    "kind": "tablet_turnin",
+                    "itemName": item_name,
+                    "script": pay.get("script"),
+                }
+            )
+
+        unlock_refs = unlock_by_recipe.get(recipe_name, [])
+        recipe_items[item_name] = {
+            "itemName": item_name,
+            "recipeName": recipe_name,
+            "storeItemType": store_item_type,
+            "acquisitionLocations": acquisition_locations,
+            "unlockRecipeScripts": unlock_refs,
+            "recipesEntry": by_recipe.get(recipe_name),
+        }
+
     return {
         "summary": {
             "recipeSetCount": len(recipe_sets),
@@ -580,6 +641,7 @@ def build_recipe_sources_payload(
         "tabletPaymentScripts": tablet_payments,
         "merchantsByStoreItemType": merchants_by_store_type,
         "lootTypeBasedSpawners": loot_hints,
+        "recipeItems": recipe_items,
         "recipes": by_recipe,
     }
 
@@ -772,6 +834,18 @@ def normalize_icon_path(lua_path: str) -> str:
     return p.lstrip("/")
 
 
+def canonical_data_rel(path: Path, data_root: Path) -> str:
+    """
+    Return a stable Data-relative path string for emitted catalog metadata.
+    Even when sourcing files from Data1 on disk, the catalog should expose Data/... paths.
+    """
+    try:
+        rel = path.relative_to(data_root).as_posix()
+        return f"Data/{rel}"
+    except ValueError:
+        return str(path)
+
+
 def try_dds_to_png(dds: Path, png: Path) -> None:
     """Convert DDS to PNG using imageio, then Pillow. Raises RuntimeError if conversion fails."""
     import imageio.v3 as iio
@@ -790,7 +864,7 @@ def try_dds_to_png(dds: Path, png: Path) -> None:
         err_io = e
     try:
         im = Image.open(dds)
-        im = im.transpose(Image.FLIP_TOP_BOTTOM)
+        im = im.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
         im.save(png)
         if png.is_file():
             return
@@ -834,7 +908,28 @@ def build_icon_map(
     icon_map: Dict[str, str] = {}
     for norm in unique:
         if export_png:
-            dds = data_root / norm.replace("/", "\\") if sys.platform == "win32" else data_root / norm
+            # Lua icon refs are usually "../Data/Textures/...", but this extractor now
+            # reads from Data1. Resolve both legacy "Data/..." and direct relative forms.
+            norm_rel = norm
+            if norm_rel.startswith("Data1/"):
+                norm_rel = norm_rel[len("Data1/") :]
+            elif norm_rel.startswith("Data/"):
+                norm_rel = norm_rel[len("Data/") :]
+
+            dds = (
+                data_root / norm_rel.replace("/", "\\")
+                if sys.platform == "win32"
+                else data_root / norm_rel
+            )
+            if not dds.is_file():
+                # Compatibility fallback if assets still physically live under Data/.
+                dds_fallback = (
+                    (data_root.parent / norm.replace("/", "\\"))
+                    if sys.platform == "win32"
+                    else (data_root.parent / norm)
+                )
+                if dds_fallback.is_file():
+                    dds = dds_fallback
             if not dds.is_file():
                 continue
             h = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
@@ -1052,7 +1147,6 @@ def main() -> int:
 
     recipes_by_product: Dict[str, List[Dict[str, Any]]] = {}
     recipes_by_ingredient: Dict[str, List[Dict[str, Any]]] = {}
-    recipe_source_rel: str | None = None
     recipe_icon_paths: List[str] = []
     if recipes_lua.is_file():
         print(f"Reading {recipes_lua} ...")
@@ -1070,10 +1164,6 @@ def main() -> int:
             f"(each recipes.lua row may attach to normal, quality, and mastercraft outputs); "
             f"{len(recipes_by_ingredient)} ingredient keys for \"used in\" tooltips."
         )
-        try:
-            recipe_source_rel = str(recipes_lua.relative_to(data_root.parent))
-        except ValueError:
-            recipe_source_rel = str(recipes_lua)
     else:
         print(f"warning: recipes file not found: {recipes_lua}", file=sys.stderr)
 
@@ -1108,16 +1198,7 @@ def main() -> int:
         else:
             print("No icons resolved (no DDS files matched); skipping atlas.")
 
-    try:
-        source_rel = str(crafting.relative_to(data_root.parent))
-    except ValueError:
-        source_rel = str(crafting)
-
     payload: Dict[str, Any] = {
-        "source": source_rel,
-        "recipeSource": recipe_source_rel,
-        "gameRootHint": str(data_root),
-        "itemCount": len(items),
         "iconMap": icon_map,
         "ItemList": items,
         "recipesByProduct": recipes_by_product,
@@ -1126,16 +1207,7 @@ def main() -> int:
     if icon_atlas_payload is not None:
         payload["iconAtlas"] = icon_atlas_payload
 
-    try:
-        blocks_source_rel = (
-            str(shared_blocks.relative_to(data_root.parent)) if shared_blocks.is_file() else None
-        )
-    except ValueError:
-        blocks_source_rel = str(shared_blocks)
     blocks_payload = {
-        "source": blocks_source_rel,
-        "gameRootHint": str(data_root),
-        "blockTypeCount": len(block_types),
         "blockTypes": block_types,
     }
 
