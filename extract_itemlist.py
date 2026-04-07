@@ -289,6 +289,330 @@ DISPLAY_NAME_RE = re.compile(r'displayName\s*=\s*"([^"]+)"')
 ICON_TEXTURE_RE = re.compile(r'iconTextureName\s*=\s*"([^"]+)"')
 
 
+def parse_recipe_sets(recipes_lua: Path) -> List[Dict[str, Any]]:
+    """recipes.lua: baseName, startLocked, craftTools."""
+    sets: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    for raw in recipes_lua.read_text(encoding="utf-8", errors="replace").splitlines():
+        bm = re.match(r'^\s*baseName = "([^"]+)"', raw)
+        if bm:
+            if current and current.get("baseName"):
+                sets.append(current)
+            current = {"baseName": bm.group(1), "startLocked": None, "craftTools": []}
+            continue
+        if current is None:
+            continue
+        sl = re.match(r"^\s*startLocked = (true|false)", raw)
+        if sl:
+            current["startLocked"] = sl.group(1) == "true"
+            continue
+        ct = re.match(r"^\s*craftTools = \{(.*)\}", raw)
+        if ct:
+            current["craftTools"] = re.findall(r'"([^"]+)"', ct.group(1))
+    if current and current.get("baseName"):
+        sets.append(current)
+    return sets
+
+
+def parse_recipe_books(crafting_items_lua: Path) -> List[Dict[str, Any]]:
+    """craftingitems.lua: one-line RecipeItem rows."""
+    books: List[Dict[str, Any]] = []
+    for raw in crafting_items_lua.read_text(encoding="utf-8", errors="replace").splitlines():
+        if 'objectType = "RecipeItem"' not in raw:
+            continue
+        name_m = re.search(r'\{\s*name = "([^"]+)"', raw)
+        rn_m = re.search(r'recipeItemSetupInfo = \{\s*recipeName = "([^"]+)"', raw)
+        st_m = re.search(r'storeItemType = "([^"]+)"', raw)
+        if not name_m or not rn_m:
+            continue
+        books.append(
+            {
+                "itemName": name_m.group(1),
+                "recipeName": rn_m.group(1),
+                "storeItemType": st_m.group(1) if st_m else None,
+            }
+        )
+    return books
+
+
+def parse_merchants(data_dir: Path, data_root: Path) -> Dict[str, List[str]]:
+    """NPC merchants: storeItemType -> town names."""
+    npc_root = data_dir / "objects" / "characters" / "npc"
+    if not npc_root.is_dir():
+        return {}
+    out: Dict[str, set[str]] = {}
+    for p in npc_root.rglob("*.lua"):
+        if "merchant" not in p.name.lower():
+            continue
+        parts = p.parts
+        town = "unknown"
+        try:
+            idx = parts.index("npc")
+            if idx + 1 < len(parts):
+                town = parts[idx + 1]
+        except ValueError:
+            pass
+        body = p.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r'storeItemType\s*=\s*"([^"]+)"', body):
+            t = m.group(1)
+            out.setdefault(t, set()).add(town)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def parse_unlock_recipes(data_dir: Path, data_root: Path) -> Dict[str, List[Dict[str, str]]]:
+    """UnlockRecipe(\"X\") references across all lua files under Data."""
+    by_recipe: Dict[str, List[Dict[str, str]]] = {}
+    for p in data_dir.rglob("*.lua"):
+        rel = str(p.relative_to(data_root)).replace("\\", "/")
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            for m in re.finditer(r'UnlockRecipe\s*\(\s*"([^"]+)"', line):
+                by_recipe.setdefault(m.group(1), []).append(
+                    {"file": rel, "line": line.strip()[:200]}
+                )
+    return by_recipe
+
+
+def parse_chapter3_quests_robust(chapter3_lua: Path) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    text = chapter3_lua.read_text(encoding="utf-8", errors="replace")
+    blocks = re.split(r"\n(?=[A-Za-z_][A-Za-z0-9_]*\s*=\s*\{)", text)
+    for block in blocks:
+        name_m = re.match(r"^([A-Za-z0-9_]+)\s*=", block)
+        if not name_m:
+            continue
+        quest_key = name_m.group(1)
+        if not quest_key.startswith("Chapter3"):
+            continue
+        if "itemsToFetch" not in block:
+            continue
+        tab = re.search(r'itemName = "([^"]+)"', block)
+        lm = re.search(r'inProgressMapLandmark = "([^"]+)"', block)
+        if tab and lm:
+            out.append(
+                {
+                    "questKey": quest_key,
+                    "tabletItem": tab.group(1),
+                    "landmark": lm.group(1),
+                }
+            )
+    return out
+
+
+def parse_tablet_payment_unlocks(data_dir: Path, data_root: Path) -> List[Dict[str, Any]]:
+    events = data_dir / "eventscripts"
+    if not events.is_dir():
+        return []
+    result: List[Dict[str, Any]] = []
+    for p in events.rglob("*.lua"):
+        low = p.name.lower()
+        if "paymentfor" not in low:
+            continue
+        body = p.read_text(encoding="utf-8", errors="replace")
+        unlocks = [m.group(1) for m in re.finditer(r'UnlockRecipe\s*\(\s*"([^"]+)"', body)]
+        remove_m = re.search(r'RemoveItem\s*\(\s*"([^"]+)"', body)
+        if unlocks or remove_m:
+            result.append(
+                {
+                    "script": str(p.relative_to(data_root)).replace("\\", "/"),
+                    "removeItem": remove_m.group(1) if remove_m else None,
+                    "unlockRecipes": unlocks,
+                }
+            )
+    return result
+
+
+def parse_worldmap_temples(worldmap_lua: Path) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+    lines = worldmap_lua.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, line in enumerate(lines):
+        am = re.search(r'areaName = "([^"]+)"', line)
+        if not am or "Temple" not in am.group(1):
+            continue
+        display_name: Optional[str] = None
+        area_file: Optional[str] = None
+        for j in range(i + 1, min(i + 25, len(lines))):
+            dm = re.search(r'displayName = "([^"]+)"', lines[j])
+            fm = re.search(r'areaFile = "([^"]+)"', lines[j])
+            if dm:
+                display_name = dm.group(1)
+            if fm:
+                area_file = fm.group(1).replace("../", "").replace("\\", "/")
+        rows.append(
+            {
+                "areaName": am.group(1),
+                "displayName": display_name or "(no displayName in data)",
+                "areaFile": area_file or "",
+            }
+        )
+    return rows
+
+
+def parse_loot_recipe_book_hints(loot_lua: Path) -> List[Dict[str, Any]]:
+    hints: List[Dict[str, Any]] = []
+    criteria: Optional[str] = None
+    for line in loot_lua.read_text(encoding="utf-8", errors="replace").splitlines():
+        c = re.search(r"criteria = \{([^}]*)\}", line)
+        if c:
+            criteria = c.group(1).strip()
+            continue
+        if "TypeBasedSelectSpawner" in line and "storeItemType" in line:
+            st = re.search(r'storeItemType = "([^"]+)"', line)
+            w = re.search(r"weight = ([0-9.]+)", line)
+            if st:
+                hints.append(
+                    {
+                        "storeItemType": st.group(1),
+                        "weight": float(w.group(1)) if w else None,
+                        "criteria": criteria or "(see previous criteria in file)",
+                    }
+                )
+    return hints
+
+
+def build_recipe_sources_payload(
+    data_root: Path,
+    data_dir: Path,
+    recipes_lua: Path,
+    crafting_items_lua: Path,
+) -> Dict[str, Any]:
+    """Build payload equivalent to extract-recipe-sources.mjs."""
+    recipe_sets = parse_recipe_sets(recipes_lua)
+    recipe_books = parse_recipe_books(crafting_items_lua)
+    merchants_by_store_type = parse_merchants(data_dir, data_root)
+    unlock_by_recipe = parse_unlock_recipes(data_dir, data_root)
+
+    chapter3_path = data_dir / "quests" / "Chapter3Quests.lua"
+    worldmap_path = data_dir / "areas" / "worldmap.lua"
+    loot_path = data_dir / "quests" / "lootspawnconfig.lua"
+
+    chapter3_tablets = (
+        parse_chapter3_quests_robust(chapter3_path) if chapter3_path.is_file() else []
+    )
+    tablet_payments = parse_tablet_payment_unlocks(data_dir, data_root)
+    worldmap_temples = parse_worldmap_temples(worldmap_path) if worldmap_path.is_file() else []
+    loot_hints = parse_loot_recipe_book_hints(loot_path) if loot_path.is_file() else []
+
+    by_recipe: Dict[str, Dict[str, Any]] = {}
+    for rs in recipe_sets:
+        by_recipe[rs["baseName"]] = {
+            "baseName": rs["baseName"],
+            "startLocked": rs.get("startLocked"),
+            "craftTools": rs.get("craftTools", []),
+            "sources": [],
+        }
+
+    def add_source(recipe: str, kind: str, detail: Dict[str, Any]) -> None:
+        if recipe not in by_recipe:
+            by_recipe[recipe] = {
+                "baseName": recipe,
+                "startLocked": None,
+                "craftTools": [],
+                "sources": [],
+            }
+        by_recipe[recipe]["sources"].append({"kind": kind, **detail})
+
+    for rs in recipe_sets:
+        if rs.get("startLocked") is False:
+            add_source(
+                rs["baseName"],
+                "default_unlock",
+                {"note": "startLocked=false in recipes.lua (available once you have craft tools)"},
+            )
+
+    for b in recipe_books:
+        towns = merchants_by_store_type.get(str(b.get("storeItemType")), [])
+        add_source(
+            b["recipeName"],
+            "recipe_book_item",
+            {
+                "bookItem": b["itemName"],
+                "storeItemType": b.get("storeItemType"),
+                "shopPoolHint": (
+                    f'Merchants with storeItemType "{b.get("storeItemType")}" in towns: {", ".join(towns)}'
+                    if towns
+                    else f'No merchant lua matched storeItemType "{b.get("storeItemType")}" (may still appear via loot or engine).'
+                ),
+            },
+        )
+
+    for recipe, refs in unlock_by_recipe.items():
+        for r in refs:
+            add_source(recipe, "unlock_recipe_script", {"file": r["file"], "snippet": r["line"]})
+
+    for t in chapter3_tablets:
+        pay = next((p for p in tablet_payments if p.get("removeItem") == t["tabletItem"]), None)
+        for r in (pay.get("unlockRecipes", []) if pay else []):
+            add_source(
+                r,
+                "chapter3_tablet",
+                {
+                    "tabletItem": t["tabletItem"],
+                    "landmark": t["landmark"],
+                    "questKey": t["questKey"],
+                    "paymentScript": pay.get("script") if pay else None,
+                },
+            )
+
+    for pay in tablet_payments:
+        rm = str(pay.get("removeItem") or "")
+        if "Tablet" not in rm:
+            continue
+        for r in pay.get("unlockRecipes", []):
+            exists = any(
+                s.get("kind") in ("chapter3_tablet", "secret_tablet")
+                for s in by_recipe.get(r, {}).get("sources", [])
+            )
+            if not exists:
+                add_source(
+                    r,
+                    "tablet_payment_script",
+                    {"removeItem": pay.get("removeItem"), "script": pay.get("script")},
+                )
+
+    return {
+        "summary": {
+            "recipeSetCount": len(recipe_sets),
+            "recipeBookCount": len(recipe_books),
+            "unlockRecipeCallCount": sum(len(v) for v in unlock_by_recipe.values()),
+        },
+        "worldmapTemples": worldmap_temples,
+        "chapter3TabletQuests": chapter3_tablets,
+        "tabletPaymentScripts": tablet_payments,
+        "merchantsByStoreItemType": merchants_by_store_type,
+        "lootTypeBasedSpawners": loot_hints,
+        "recipes": by_recipe,
+    }
+
+
+def write_recipe_sources_markdown(payload: Dict[str, Any], out_md: Path) -> None:
+    md = "# Recipe source hints (generated)\n\n"
+    md += f"Generated: {payload.get('generated')}\n\n"
+    md += "## Limits\n\n"
+    md += "- **Shops** are inferred from merchant `storeItemType` pools (random book within type), not guaranteed item→vendor.\n"
+    md += "- **Loot** lists `TypeBasedSelectSpawner` rows from `lootspawnconfig.lua` (random book in category + criteria).\n"
+    md += "- **UnlockRecipe** entries point to scripts; read files for quest context.\n\n"
+
+    md += "## Chapter 3 tablet quests (landmarks)\n\n"
+    md += "| Quest | Tablet | Landmark |\n| --- | --- | --- |\n"
+    for t in payload.get("chapter3TabletQuests", []):
+        md += f"| {t.get('questKey','')} | {t.get('tabletItem','')} | {t.get('landmark','')} |\n"
+    md += "\n"
+
+    md += "## Recipe books by recipe (from craftingitems RecipeItem)\n\n"
+    by_rn: Dict[str, List[Dict[str, Any]]] = {}
+    for recipe_name, row in payload.get("recipes", {}).items():
+        for s in row.get("sources", []):
+            if s.get("kind") != "recipe_book_item":
+                continue
+            by_rn.setdefault(recipe_name, []).append(s)
+    for name in sorted(by_rn):
+        md += f"### {name}\n"
+        for b in by_rn[name]:
+            md += f"- **{b.get('bookItem')}** — storeItemType `{b.get('storeItemType')}`\n"
+        md += "\n"
+    out_md.write_text(md, encoding="utf-8")
+
+
 def extract_recipes(lua_path: Path) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]:
     """
     Parse recipes.lua: each line with Ingredients + normalProduct becomes one recipe entry.
@@ -483,7 +807,7 @@ def try_dds_to_png(dds: Path, png: Path) -> None:
 
 def build_icon_map(
     items: List[Dict[str, Any]],
-    game_root: Path,
+    data_root: Path,
     icons_out: Path,
     export_png: bool,
     extra_normalized_paths: Optional[List[str]] = None,
@@ -510,7 +834,7 @@ def build_icon_map(
     icon_map: Dict[str, str] = {}
     for norm in unique:
         if export_png:
-            dds = game_root / norm.replace("/", "\\") if sys.platform == "win32" else game_root / norm
+            dds = data_root / norm.replace("/", "\\") if sys.platform == "win32" else data_root / norm
             if not dds.is_file():
                 continue
             h = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
@@ -522,7 +846,7 @@ def build_icon_map(
                 raise RuntimeError(f"Missing PNG after DDS conversion: {png_path} (from {dds})")
             icon_map[norm] = png_name
         else:
-            # Relative URL when HTTP server root = game_root: /Data/...
+            # Relative URL when HTTP server root = data_root: /Data/... (or /Data1/...)
             icon_map[norm] = f"../../{norm}"
 
     return icon_map
@@ -702,11 +1026,12 @@ def main() -> int:
 
     script_dir = Path(__file__).resolve().parent
     public_dir = script_dir / "public"
-    game_root = script_dir.parent.parent
-    crafting = game_root / "Data" / "objects" / "crafting" / "craftingitems.lua"
-    recipes_lua = game_root / "Data" / "objects" / "crafting" / "recipes.lua"
-    shared_blocks = game_root / "Data" / "objects" / "sharedblockinfo.lua"
+    data_root = script_dir.parent.parent / "Data1"
+    crafting = data_root / "objects" / "crafting" / "craftingitems.lua"
+    recipes_lua = data_root / "objects" / "crafting" / "recipes.lua"
+    shared_blocks = data_root / "objects" / "sharedblockinfo.lua"
     catalog_path = public_dir / "catalog.json"
+    catalog_pretty_path = public_dir / "catalog.json"
 
     if not crafting.is_file():
         print(f"error: crafting file not found: {crafting}", file=sys.stderr)
@@ -746,7 +1071,7 @@ def main() -> int:
             f"{len(recipes_by_ingredient)} ingredient keys for \"used in\" tooltips."
         )
         try:
-            recipe_source_rel = str(recipes_lua.relative_to(game_root))
+            recipe_source_rel = str(recipes_lua.relative_to(data_root.parent))
         except ValueError:
             recipe_source_rel = str(recipes_lua)
     else:
@@ -759,7 +1084,7 @@ def main() -> int:
         staging = Path(staging_s)
         icon_map = build_icon_map(
             items,
-            game_root,
+            data_root,
             staging,
             export_png=True,
             extra_normalized_paths=recipe_icon_paths,
@@ -784,14 +1109,14 @@ def main() -> int:
             print("No icons resolved (no DDS files matched); skipping atlas.")
 
     try:
-        source_rel = str(crafting.relative_to(game_root))
+        source_rel = str(crafting.relative_to(data_root.parent))
     except ValueError:
         source_rel = str(crafting)
 
     payload: Dict[str, Any] = {
         "source": source_rel,
         "recipeSource": recipe_source_rel,
-        "gameRootHint": str(game_root),
+        "gameRootHint": str(data_root),
         "itemCount": len(items),
         "iconMap": icon_map,
         "ItemList": items,
@@ -803,31 +1128,46 @@ def main() -> int:
 
     try:
         blocks_source_rel = (
-            str(shared_blocks.relative_to(game_root)) if shared_blocks.is_file() else None
+            str(shared_blocks.relative_to(data_root.parent)) if shared_blocks.is_file() else None
         )
     except ValueError:
         blocks_source_rel = str(shared_blocks)
     blocks_payload = {
         "source": blocks_source_rel,
-        "gameRootHint": str(game_root),
+        "gameRootHint": str(data_root),
         "blockTypeCount": len(block_types),
         "blockTypes": block_types,
     }
+
+    recipe_sources_payload: Optional[Dict[str, Any]] = None
+    if recipes_lua.is_file() and crafting.is_file():
+        recipe_sources_payload = build_recipe_sources_payload(
+            data_root=data_root,
+            data_dir=data_root,
+            recipes_lua=recipes_lua,
+            crafting_items_lua=crafting,
+        )
 
     catalog_bundle = {
         "itemlist": payload,
         "sharedblockinfo": blocks_payload,
     }
+    if recipe_sources_payload is not None:
+        catalog_bundle["recipeSources"] = recipe_sources_payload
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog_json_text = json.dumps(
-        catalog_bundle, ensure_ascii=False, separators=(",", ":")
-    )
-    catalog_path.write_text(catalog_json_text, encoding="utf-8")
+    # Emit both readable and compact catalogs; catalog.json is the readable 2-space variant.
+    catalog_pretty_text = json.dumps(catalog_bundle, ensure_ascii=False, indent=2)
+    catalog_min_text = json.dumps(catalog_bundle, ensure_ascii=False, separators=(",", ":"))
+    catalog_pretty_path.write_text(catalog_pretty_text, encoding="utf-8")
+    catalog_path.write_text(catalog_pretty_text, encoding="utf-8")
     gz_path = catalog_path.with_name(catalog_path.name + ".gz")
     gz_path.write_bytes(
-        gzip.compress(catalog_json_text.encode("utf-8"), compresslevel=9)
+        gzip.compress(catalog_min_text.encode("utf-8"), compresslevel=9)
     )
-    print(f"Wrote {catalog_path} and {gz_path} (gzip).")
+    print(
+        f"Wrote {catalog_pretty_path}, {catalog_path}, and {gz_path} (gzip)."
+    )
+
     return 0
 
 
