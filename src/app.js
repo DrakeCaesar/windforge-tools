@@ -2987,12 +2987,20 @@ function createSortCacheWorker() {
 
   function matchesQuery(item, q) {
     if (!q) return true;
-    const s = q.toLowerCase();
+    const words = q
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length === 0) return true;
     const hay = [item.name, displayName(item)]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    return hay.includes(s);
+    for (let i = 0; i < words.length; i++) {
+      if (!hay.includes(words[i])) return false;
+    }
+    return true;
   }
 
   const NO_OBJECT_TYPE = "__no_object_type__";
