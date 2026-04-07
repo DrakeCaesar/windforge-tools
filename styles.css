@@ -1216,11 +1216,12 @@ main {
 .recipe-tooltip {
   position: fixed;
   z-index: 10000;
-  max-width: min(352px, calc(100vw - 16px));
+  width: max-content;
+  max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   /* Avoid preserving scroll across innerHTML swaps when switching nested targets */
   overflow-anchor: none;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   padding: 9px 10px 10px;
   background: var(--panel);
@@ -1385,6 +1386,26 @@ main {
 
 .recipe-tooltip__row--used-in .recipe-tooltip__ing-name {
   font-weight: 500;
+}
+
+.recipe-tooltip__row--recipe-source {
+  align-items: flex-start;
+  white-space: nowrap;
+}
+
+.recipe-tooltip__ing-name--recipe-source {
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.25;
+}
+
+.recipe-tooltip__ing-qty--recipe-source {
+  max-width: 45%;
+  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: right;
+  line-height: 1.25;
 }
 
 .recipe-tooltip__icon-img {
